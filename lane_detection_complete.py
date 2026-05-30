@@ -67,10 +67,10 @@ def create_roi_mask(image_shape):
     """创建ROI四边形掩码，只保留图像下半车道区域"""
     height, width = image_shape[:2]
     vertices = np.array([[
-        [width * 0.1, height],
-        [width * 0.45, height * 0.6],
-        [width * 0.55, height * 0.6],
-        [width * 0.9, height]
+        [width * 0.05, height],
+        [width * 0.40, height * 0.55],
+        [width * 0.60, height * 0.55],
+        [width * 0.95, height]
     ]], dtype=np.int32)
     mask = np.zeros((height, width), dtype=np.uint8)
     cv2.fillPoly(mask, vertices, 255)
@@ -83,8 +83,8 @@ def apply_roi(edge_image, mask):
 
 
 def hough_lines(edge_image):
-    """霍夫概率变换: rho=1, theta=π/180, threshold=30, minLineLength=50, maxLineGap=10"""
-    return cv2.HoughLinesP(edge_image, 1, math.pi / 180, 30, minLineLength=50, maxLineGap=10)
+    """霍夫概率变换: 优化参数以检测虚线"""
+    return cv2.HoughLinesP(edge_image, 1, math.pi / 180, 15, minLineLength=20, maxLineGap=30)
 
 
 def calculate_slope(line):
@@ -95,8 +95,8 @@ def calculate_slope(line):
     return (y2 - y1) / (x2 - x1)
 
 
-def separate_lanes(lines):
-    """斜率分类区分左右车道: 斜率<0左车道, 斜率>0右车道"""
+def separate_lanes(lines, width):
+    """斜率分类区分左右车道: 斜率<0左车道, 斜率>0右车道, 并过滤异常线"""
     left_lines = []
     right_lines = []
     if lines is None:
@@ -106,11 +106,15 @@ def separate_lanes(lines):
         slope = calculate_slope((x1, y1, x2, y2))
         if slope is None:
             continue
-        if abs(slope) < 0.5:
+        if abs(slope) < 0.3:
             continue
-        if slope < 0:
+
+        # 过滤：左车道线应该在图像左半部分，右车道线应该在右半部分
+        line_x_center = (x1 + x2) / 2
+
+        if slope < 0 and line_x_center < width * 0.6:
             left_lines.append((x1, y1, x2, y2))
-        else:
+        elif slope > 0 and line_x_center > width * 0.4:
             right_lines.append((x1, y1, x2, y2))
     return left_lines, right_lines
 
@@ -161,6 +165,95 @@ def blend_with_original(result, overlay):
 
 
 # =============================================================================
+# 车道线跟踪器 - 帧间平滑
+# =============================================================================
+
+class LaneSmoother:
+    """车道线平滑跟踪器"""
+
+    def __init__(self, history_size=5):
+        self.history_size = history_size
+        self.left_history = []
+        self.right_history = []
+
+    def update(self, left_line, right_line):
+        """
+        更新跟踪器
+
+        参数:
+            left_line: 左车道线系数 [a, b, c] or None
+            right_line: 右车道线系数 [a, b, c] or None
+
+        返回:
+            (smoothed_left, smoothed_right): 平滑后的车道线
+        """
+        self.left_history.append(left_line if left_line is not None else self.left_history[-1] if self.left_history else None)
+        self.right_history.append(right_line if right_line is not None else self.right_history[-1] if self.right_history else None)
+
+        if len(self.left_history) > self.history_size:
+            self.left_history.pop(0)
+        if len(self.right_history) > self.history_size:
+            self.right_history.pop(0)
+
+        smooth_left = self._average_valid(self.left_history)
+        smooth_right = self._average_valid(self.right_history)
+
+        return smooth_left, smooth_right
+
+    def _average_valid(self, lines):
+        """计算有效线的平均值"""
+        valid = [l for l in lines if l is not None]
+        if not valid:
+            return None
+        avg = np.zeros_like(valid[0], dtype=float)
+        for l in valid:
+            avg += l
+        return avg / len(valid)
+
+    def reset(self):
+        """重置跟踪器"""
+        self.left_history = []
+        self.right_history = []
+
+
+# 全局跟踪器
+_tracker = LaneSmoother(history_size=5)
+
+
+def reset_tracker():
+    """重置跟踪器"""
+    _tracker.reset()
+
+
+def get_lane_offset(left_line, right_line, image_width, y_eval):
+    """
+    计算车道偏移量
+
+    参数:
+        left_line: 左车道线系数
+        right_line: 右车道线系数
+        image_width: 图像宽度
+        y_eval: 评估点y坐标
+
+    返回:
+        offset: 偏移量(米), 正值=偏右, 负值=偏左
+    """
+    if left_line is None or right_line is None:
+        return 0
+
+    left_x = np.polyval(left_line, y_eval)
+    right_x = np.polyval(right_line, y_eval)
+
+    lane_center = (left_x + right_x) / 2
+    vehicle_center = image_width / 2
+
+    pixel_offset = lane_center - vehicle_center
+    meters_per_pixel = 3.7 / 100
+
+    return pixel_offset * meters_per_pixel
+
+
+# =============================================================================
 # 单帧处理核心函数
 # =============================================================================
 
@@ -192,7 +285,7 @@ def process_frame(frame):
 
     lines = hough_lines(masked_edges)
 
-    left_lines, right_lines = separate_lanes(lines)
+    left_lines, right_lines = separate_lanes(lines, width)
 
     left_points = [(x1, y1) for x1, y1, x2, y2 in left_lines] + [(x2, y2) for x1, y1, x2, y2 in left_lines]
     right_points = [(x1, y1) for x1, y1, x2, y2 in right_lines] + [(x2, y2) for x1, y1, x2, y2 in right_lines]
@@ -203,11 +296,15 @@ def process_frame(frame):
     left_line = fit_line(left_points)
     right_line = fit_line(right_points)
 
-    overlay = draw_lane_lines_overlay(frame, left_line, right_line, y_min, y_max)
+    left_line_smooth, right_line_smooth = _tracker.update(left_line, right_line)
+
+    offset = get_lane_offset(left_line_smooth, right_line_smooth, width, y_max)
+
+    overlay = draw_lane_lines_overlay(frame, left_line_smooth, right_line_smooth, y_min, y_max)
 
     result = blend_with_original(frame, overlay)
 
-    return result
+    return result, offset, left_line_smooth, right_line_smooth
 
 
 # =============================================================================
@@ -227,13 +324,15 @@ def process_image_file(input_img_path, output_img_path):
         input_img_path: 输入图像路径
         output_img_path: 输出图像路径
     """
+    reset_tracker()
     frame = imread_chinese(input_img_path)
     if frame is None:
         print(f"错误：无法读取图像 {input_img_path}")
         return
-    result = process_frame(frame)
+    result, offset, _, _ = process_frame(frame)
     cv2.imwrite(output_img_path, result)
     print(f"图像已保存: {output_img_path}")
+    print(f"车道偏移: {offset:.3f}m")
 
 
 def process_video_file(input_video_path, output_video_path):
@@ -245,19 +344,27 @@ def process_video_file(input_video_path, output_video_path):
         output_video_path: 输出视频路径
     """
     print(f"开始处理视频: {input_video_path}")
+    reset_tracker()
     clip = VideoFileClip(input_video_path)
 
     processed_frames = []
-    for frame in clip.iter_frames(fps=clip.fps, dtype='uint8'):
+    offsets = []
+    for i, frame in enumerate(clip.iter_frames(fps=clip.fps, dtype='uint8')):
         frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        result = process_frame(frame_bgr)
+        result, offset, _, _ = process_frame(frame_bgr)
         result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
         processed_frames.append(result_rgb)
+        offsets.append(offset)
+        if (i + 1) % 30 == 0:
+            print(f"已处理 {i + 1} 帧...")
 
     from moviepy import ImageSequenceClip
     output_clip = ImageSequenceClip(processed_frames, fps=clip.fps)
     output_clip.write_videofile(output_video_path, codec='libx264', audio=False)
     print(f"视频已保存: {output_video_path}")
+
+    avg_offset = sum(offsets) / len(offsets) if offsets else 0
+    print(f"平均车道偏移: {avg_offset:.3f}m")
 
 
 def display_processing_steps(input_img_path):
@@ -284,7 +391,9 @@ def display_processing_steps(input_img_path):
     edges = canny_edge(blurred)
     roi_mask = create_roi_mask((height, width))
     masked_edges = apply_roi(edges, roi_mask)
-    result = process_frame(frame)
+    lines = hough_lines(masked_edges)
+    left_detected, right_detected = separate_lanes(lines, width)
+    result, _, _, _ = process_frame(frame)
 
     plt.figure(figsize=(15, 10))
 
@@ -309,9 +418,12 @@ def display_processing_steps(input_img_path):
     plt.axis('off')
 
     plt.subplot(2, 3, 5)
-    roi_display = cv2.cvtColor(masked_edges, cv2.COLOR_GRAY2BGR)
-    plt.imshow(cv2.cvtColor(roi_display, cv2.COLOR_BGR2RGB))
-    plt.title('Hough Lines')
+    hough_display = cv2.cvtColor(masked_edges, cv2.COLOR_GRAY2BGR)
+    for line in (lines or []):
+        x1, y1, x2, y2 = line[0]
+        cv2.line(hough_display, (x1, y1), (x2, y2), (0, 255, 0), 2)
+    plt.imshow(cv2.cvtColor(hough_display, cv2.COLOR_BGR2RGB))
+    plt.title(f'Hough Lines ({len(lines) if lines is not None else 0})')
     plt.axis('off')
 
     plt.subplot(2, 3, 6)
