@@ -1,6 +1,6 @@
 # 智能交通视觉监测系统
 
-基于OpenCV的传统视觉算法实现的智能交通监测系统，支持车流量统计、车辆速度检测、交通热力图三大核心功能。
+基于OpenCV的传统视觉算法实现的智能交通监测系统，支持车流量统计、车辆速度检测、交通热力图三大核心功能，并提供Web可视化界面。
 
 ## 📁 项目结构
 
@@ -9,7 +9,12 @@ TrafficMonitorSystem/
 ├── traffic_monitor.py    # 核心系统类
 ├── config.py             # 配置参数
 ├── gui.py                # GUI界面
+├── app.py                # Flask Web服务
+├── templates/
+│   └── index.html        # Web前端页面
 ├── requirements.txt      # 依赖清单
+├── run.sh                # Linux/Mac启动脚本
+├── run.bat               # Windows启动脚本
 └── README.md             # 使用说明
 ```
 
@@ -33,6 +38,12 @@ TrafficMonitorSystem/
 - **实时叠加**：半透明显示
 - **拥堵分析**：颜色深浅反映交通密度
 
+### 4. Web可视化
+- **实时视频流**：浏览器实时查看检测画面
+- **数据统计面板**：实时显示车流量、速度、拥堵指数
+- **车型分布**：分类统计轿车、货车、公交
+- **异常预警**：实时显示超速、逆行等异常
+
 ## ⚙️ 技术参数
 
 | 模块 | 参数 |
@@ -46,7 +57,19 @@ TrafficMonitorSystem/
 
 ## 🚀 快速开始
 
-### 方式一：Python API
+### 方式一：Web服务（推荐）
+
+```bash
+# Linux/Mac
+./run.sh
+
+# Windows
+run.bat
+```
+
+然后在浏览器中访问：`http://localhost:5000`
+
+### 方式二：Python API
 
 ```python
 from traffic_monitor import TrafficMonitor
@@ -64,7 +87,7 @@ monitor.process_camera(0)
 monitor.process_images(['img1.jpg', 'img2.jpg'])
 ```
 
-### 方式二：GUI界面
+### 方式三：GUI界面
 
 ```bash
 cd TrafficMonitorSystem
@@ -165,11 +188,12 @@ HEATMAP_THRESHOLD = 0.3
 2. **遮挡处理**：车辆遮挡时跟踪可能丢失
 3. **相机角度**：建议俯视角度拍摄
 4. **分辨率**：推荐1280x720以上
+5. **YOLO模型**：首次运行会自动下载YOLOv8模型（约6MB）
 
 ## 📦 依赖安装
 
 ```bash
-pip install opencv-python numpy moviepy Pillow
+pip install opencv-python numpy moviepy Pillow flask flask-cors gevent ultralytics
 ```
 
 ## 🎓 课程设计亮点
@@ -177,8 +201,9 @@ pip install opencv-python numpy moviepy Pillow
 1. **三大功能集成**：车流量+车速+热力图
 2. **模块化设计**：各功能独立可复用
 3. **实时处理**：支持摄像头实时检测
-4. **可视化界面**：GUI操作简便
-5. **可扩展架构**：易于添加新功能
+4. **Web可视化**：浏览器端实时监控，支持远程访问
+5. **可视化界面**：GUI和Web双端操作简便
+6. **可扩展架构**：易于添加新功能
 
 ## 📄 许可证
 

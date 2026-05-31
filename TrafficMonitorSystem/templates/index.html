@@ -1,0 +1,1643 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能交通视觉监测系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            background: linear-gradient(90deg, #00d4ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .container {
+            display: flex;
+            height: calc(100vh - 80px);
+        }
+        
+        .video-section {
+            flex: 2;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .video-container {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        
+        .video-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .video-controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-start {
+            background: linear-gradient(135deg, #00ff88, #00d4ff);
+            color: #1a1a2e;
+        }
+        
+        .btn-start:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0, 255, 136, 0.4);
+        }
+        
+        .btn-stop {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a5a);
+            color: white;
+        }
+        
+        .btn-stop:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+        }
+        
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .btn-upload {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        
+        .btn-upload:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .sidebar {
+            flex: 1;
+            min-width: 380px;
+            max-width: 420px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            scrollbar-width: thin;
+        }
+        
+        .stats-card {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .stats-card h3 {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: rgba(255, 255, 255, 0.7);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 10px;
+        }
+        
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .stat-item:last-child {
+            border-bottom: none;
+        }
+        
+        .stat-label {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+        }
+        
+        .stat-value {
+            font-size: 20px;
+            font-weight: 600;
+            color: #00ff88;
+        }
+        
+        .congestion-bar {
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        
+        .congestion-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+        
+        .congestion-fill.low {
+            background: linear-gradient(90deg, #00ff88, #00d4ff);
+        }
+        
+        .congestion-fill.medium {
+            background: linear-gradient(90deg, #ffaa00, #ff6b00);
+        }
+        
+        .congestion-fill.high {
+            background: linear-gradient(90deg, #ff6b6b, #ee5a5a);
+        }
+        
+        .vehicle-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+        
+        .vehicle-item {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+        
+        .vehicle-item.car {
+            border-left: 3px solid #00ff88;
+        }
+        
+        .vehicle-item.truck {
+            border-left: 3px solid #ffaa00;
+        }
+        
+        .vehicle-item.bus {
+            border-left: 3px solid #00d4ff;
+        }
+        
+        .vehicle-count {
+            font-size: 28px;
+            font-weight: 700;
+            color: white;
+        }
+        
+        .vehicle-name {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-top: 5px;
+        }
+        
+        .warnings-list {
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        
+        .warning-item {
+            background: rgba(255, 107, 107, 0.2);
+            border-left: 3px solid #ff6b6b;
+            padding: 8px 12px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-dot.running {
+            background: #00ff88;
+        }
+        
+        .status-dot.stopped {
+            background: #ff6b6b;
+            animation: none;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .source-selector {
+            margin-bottom: 15px;
+        }
+        
+        .source-selector select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid rgba(0, 255, 136, 0.5);
+            border-radius: 8px;
+            background: rgba(0, 255, 136, 0.1);
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 0 10px rgba(0, 255, 136, 0.2);
+        }
+        
+        .source-selector select:hover {
+            border-color: #00ff88;
+            background: rgba(0, 255, 136, 0.15);
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+        }
+        
+        .source-selector select option {
+            background: #1a1a2e;
+            color: white;
+            padding: 10px;
+            font-size: 14px;
+        }
+        
+        .source-selector select option:hover {
+            background: rgba(0, 255, 136, 0.3);
+        }
+        
+        /* 复选框样式 */
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.8);
+        }
+        
+        .checkbox-label input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: #00ff88;
+        }
+        
+        /* 文件上传样式 */
+        .upload-area {
+            border: 2px dashed #00ff88;
+            border-radius: 12px;
+            padding: 30px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(0, 255, 136, 0.05);
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
+            min-height: 120px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .upload-area:hover, .upload-area.dragover {
+            border-color: #00d4ff;
+            background: rgba(0, 255, 136, 0.15);
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.4);
+            transform: scale(1.02);
+        }
+        
+        .upload-area input[type="file"] {
+            display: none;
+        }
+        
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+            transition: transform 0.3s;
+        }
+        
+        .upload-area:hover .upload-icon {
+            transform: scale(1.1);
+        }
+        
+        .upload-text {
+            font-size: 16px;
+            color: white;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .upload-hint {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.7);
+            margin-top: 0;
+        }
+        
+        /* 视频列表样式 */
+        .video-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .video-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            margin-bottom: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .video-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .video-item.selected {
+            background: rgba(0, 255, 136, 0.2);
+            border-left: 3px solid #00ff88;
+        }
+        
+        .video-name {
+            flex: 1;
+            font-size: 13px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .video-actions {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .video-action-btn {
+            width: 24px;
+            height: 24px;
+            border: none;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .video-action-btn:hover {
+            background: rgba(255, 107, 107, 0.5);
+        }
+        
+        .upload-progress {
+            margin-top: 10px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        
+        .upload-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00ff88, #00d4ff);
+            width: 0%;
+            transition: width 0.3s;
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            z-index: 1000;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s;
+        }
+        
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .toast.success {
+            background: rgba(0, 255, 136, 0.9);
+        }
+        
+        .toast.error {
+            background: rgba(255, 107, 107, 0.9);
+        }
+        
+        /* 可折叠卡片样式 */
+        .collapsible {
+            position: relative;
+        }
+        
+        .collapse-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            cursor: pointer;
+            padding: 2px 5px;
+            border-radius: 4px;
+            transition: all 0.3s;
+        }
+        
+        .collapse-btn:hover {
+            color: white;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .collapse-content {
+            margin-top: 10px;
+        }
+        
+        /* 视频源选择器样式 */
+        .video-source-select {
+            flex: 2;
+            padding: 12px 16px;
+            border: 2px solid #00ff88;
+            border-radius: 8px;
+            background: rgba(0, 255, 136, 0.15);
+            color: white;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.3);
+            min-width: 200px;
+        }
+        
+        .video-source-select:hover {
+            border-color: #00d4ff;
+            background: rgba(0, 255, 136, 0.25);
+            box-shadow: 0 0 25px rgba(0, 255, 136, 0.5);
+        }
+        
+        .video-source-select option {
+            background: #1a1a2e;
+            color: white;
+            padding: 10px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .video-source-select optgroup {
+            background: #16213e;
+            color: #00ff88;
+            font-weight: 600;
+        }
+        
+        /* 驾驶行为画像选择器 */
+        .profile-selector select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid rgba(0, 212, 255, 0.5);
+            border-radius: 6px;
+            background: rgba(0, 212, 255, 0.1);
+            color: white;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 0 10px rgba(0, 212, 255, 0.2);
+        }
+        
+        .profile-selector select:hover {
+            border-color: #00d4ff;
+            background: rgba(0, 212, 255, 0.15);
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+        }
+        
+        .profile-selector select option {
+            background: #1a1a2e;
+            color: white;
+            padding: 8px;
+        }
+        
+        /* 风险评估样式 */
+        .risk-summary {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        
+        .risk-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s;
+        }
+        
+        .risk-item:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+        
+        .risk-label {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.8);
+            font-weight: 500;
+        }
+        
+        .risk-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: #00ff88;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+        }
+        
+        .risk-value.risk-active {
+            color: #ffcc00;
+            text-shadow: 0 0 10px rgba(255, 204, 0, 0.5);
+        }
+        
+        .risk-value.risk-high {
+            color: #ff4444;
+            text-shadow: 0 0 10px rgba(255, 68, 68, 0.5);
+            animation: pulse 1s infinite;
+        }
+        
+        .risk-value.risk-medium {
+            color: #ffaa00;
+            text-shadow: 0 0 10px rgba(255, 170, 0, 0.5);
+        }
+        
+        /* 车道统计表格 */
+        .lane-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        
+        .lane-table th, .lane-table td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .lane-table th {
+            color: rgba(255, 255, 255, 0.6);
+            font-weight: 600;
+        }
+        
+        /* 滑块样式 */
+        input[type="range"] {
+            width: 100%;
+            height: 8px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: linear-gradient(90deg, #00ff88 0%, #00d4ff 100%);
+            border-radius: 4px;
+            outline: none;
+            box-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 255, 136, 0.5);
+            border: 2px solid #00ff88;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+            box-shadow: 0 0 15px rgba(0, 255, 136, 0.8), 0 0 30px rgba(0, 212, 255, 0.5);
+        }
+        
+        /* 滚动条样式 */
+        .sidebar::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .sidebar::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 3px;
+        }
+        
+        .sidebar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+        }
+        
+        .sidebar::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+            
+            .video-section, .sidebar {
+                flex: none;
+                height: auto;
+            }
+            
+            .video-container {
+                height: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚦 智能交通视觉监测系统</h1>
+        <p style="color: rgba(255,255,255,0.6); font-size: 14px; margin-top: 5px;">
+            实时监测 · 智能分析 · 异常预警
+        </p>
+    </div>
+    
+    <div class="container">
+        <div class="video-section">
+            <div class="video-container">
+                <img id="video-feed" src="/video_feed" alt="视频流">
+            </div>
+            <div class="video-controls">
+                <select id="source-select" class="video-source-select">
+                    <option value="0">📹 摄像头</option>
+                    <optgroup label="📁 已上传视频">
+                    </optgroup>
+                </select>
+                <button id="start-btn" class="btn btn-start">
+                    ▶ 开始监测
+                </button>
+                <button id="stop-btn" class="btn btn-stop">
+                    ⏹ 停止监测
+                </button>
+                <button id="snapshot-btn" class="btn btn-secondary">
+                    📷 截图
+                </button>
+                <button id="export-btn" class="btn btn-secondary">
+                    📊 导出数据
+                </button>
+            </div>
+        </div>
+        
+        <div class="sidebar">
+            <div class="stats-card">
+                <div class="status-indicator">
+                    <div id="status-dot" class="status-dot stopped"></div>
+                    <span id="status-text">系统未运行</span>
+                </div>
+                <div class="source-selector">
+                    <label style="font-size: 12px; color: rgba(255,255,255,0.6); margin-bottom: 5px; display: block;">
+                        选择视频源
+                    </label>
+                    <select id="source-select-modal">
+                        <option value="0">📹 摄像头</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- 图像增强设置 -->
+            <div class="stats-card">
+                <h3>✨ 图像增强</h3>
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="enhance-enabled" checked>
+                        <span>启用图像增强</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="retinex-enabled" checked>
+                        <span>Retinex 去雾</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="clahe-enabled" checked>
+                        <span>CLAHE 光照矫正</span>
+                    </label>
+                </div>
+                <button id="apply-enhance" class="btn btn-secondary" style="width: 100%; margin-top: 10px;">
+                    应用设置
+                </button>
+            </div>
+            
+            <!-- 视频上传区域 -->
+            <div class="stats-card">
+                <h3>📤 上传视频</h3>
+                <div class="upload-area" id="upload-area">
+                    <input type="file" id="video-file" accept="video/*">
+                    <div class="upload-icon">📁</div>
+                    <div class="upload-text">点击或拖拽上传视频</div>
+                    <div class="upload-hint">支持格式: mp4, avi, mov, mkv, webm</div>
+                </div>
+                <div class="upload-progress" id="upload-progress" style="display: none;">
+                    <div class="upload-progress-fill" id="upload-progress-fill"></div>
+                </div>
+            </div>
+            
+            <!-- 视频列表 -->
+            <div class="stats-card">
+                <h3>📺 视频列表</h3>
+                <div class="video-list" id="video-list">
+                    <div style="text-align: center; color: rgba(255,255,255,0.4); font-size: 13px;">
+                        暂无视频，上传一个吧！
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stats-card">
+                <h3>📊 实时统计</h3>
+                <div class="stat-item">
+                    <span class="stat-label">总车流量</span>
+                    <span class="stat-value" id="total-count">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">平均速度</span>
+                    <span class="stat-value" id="avg-speed">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">最大速度</span>
+                    <span class="stat-value" id="max-speed">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">拥堵指数</span>
+                    <span class="stat-value" id="congestion">0%</span>
+                </div>
+                <div class="congestion-bar">
+                    <div id="congestion-fill" class="congestion-fill low" style="width: 0%;"></div>
+                </div>
+            </div>
+            
+            <div class="stats-card">
+                <h3>🚗 车型分布</h3>
+                <div class="vehicle-grid">
+                    <div class="vehicle-item car">
+                        <div class="vehicle-count" id="car-count">0</div>
+                        <div class="vehicle-name">轿车</div>
+                    </div>
+                    <div class="vehicle-item truck">
+                        <div class="vehicle-count" id="truck-count">0</div>
+                        <div class="vehicle-name">货车</div>
+                    </div>
+                    <div class="vehicle-item bus">
+                        <div class="vehicle-count" id="bus-count">0</div>
+                        <div class="vehicle-name">公交</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stats-card">
+                <h3>⚠️ 异常预警</h3>
+                <div class="warnings-list" id="warnings-list">
+                    <div style="text-align: center; color: rgba(255,255,255,0.4); font-size: 13px;">
+                        暂无异常
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 驾驶行为画像卡片 -->
+            <div class="stats-card collapsible">
+                <h3>👤 驾驶行为画像</h3>
+                <button class="collapse-btn" onclick="toggleCard('driver-profile-card')">▼</button>
+                <div id="driver-profile-card" class="collapse-content">
+                    <div class="profile-selector">
+                        <select id="driver-select" onchange="loadDriverProfile()">
+                            <option value="">选择车辆ID</option>
+                        </select>
+                    </div>
+                    <div id="profile-content" style="margin-top: 15px;">
+                        <div style="text-align: center; color: rgba(255,255,255,0.4); font-size: 13px;">
+                            请选择车辆查看画像
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 风险评估预警卡片 -->
+            <div class="stats-card collapsible">
+                <h3>🔴 风险评估预警</h3>
+                <button class="collapse-btn" onclick="toggleCard('risk-warning-card')">▼</button>
+                <div id="risk-warning-card" class="collapse-content">
+                    <div class="risk-summary">
+                        <div class="risk-item">
+                            <span class="risk-label">总冲突数</span>
+                            <span class="risk-value" id="risk-total">0</span>
+                        </div>
+                        <div class="risk-item">
+                            <span class="risk-label">活跃冲突</span>
+                            <span class="risk-value risk-active" id="risk-active">0</span>
+                        </div>
+                        <div class="risk-item">
+                            <span class="risk-label">高风险</span>
+                            <span class="risk-value risk-high" id="risk-high">0</span>
+                        </div>
+                        <div class="risk-item">
+                            <span class="risk-label">中风险</span>
+                            <span class="risk-value risk-medium" id="risk-medium">0</span>
+                        </div>
+                    </div>
+                    <div id="risk-events-list" style="margin-top: 15px; max-height: 150px; overflow-y: auto;">
+                        <div style="text-align: center; color: rgba(255,255,255,0.4); font-size: 13px;">
+                            暂无风险事件
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 车道流量均衡分析卡片 -->
+            <div class="stats-card collapsible">
+                <h3>📈 车道流量分析</h3>
+                <button class="collapse-btn" onclick="toggleCard('lane-analysis-card')">▼</button>
+                <div id="lane-analysis-card" class="collapse-content">
+                    <div id="lane-table" style="margin-top: 10px;">
+                        <table class="lane-table">
+                            <thead>
+                                <tr>
+                                    <th>车道</th>
+                                    <th>车流量</th>
+                                    <th>平均速度</th>
+                                    <th>拥堵指数</th>
+                                </tr>
+                            </thead>
+                            <tbody id="lane-table-body">
+                                <tr>
+                                    <td colspan="4" style="text-align: center; color: rgba(255,255,255,0.4);">
+                                        暂无数据
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="lane-suggestions" style="margin-top: 15px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">
+                        <div style="font-size: 12px; color: rgba(255,255,255,0.6); margin-bottom: 5px;">优化建议:</div>
+                        <div id="suggestions-text" style="font-size: 12px; color: #00ff88;">
+                            系统分析中...
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 显示设置卡片 -->
+            <div class="stats-card">
+                <h3>⚙️ 显示设置</h3>
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="show-trajectory" checked>
+                        <span>显示轨迹线</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="show-lane" checked>
+                        <span>显示车道线</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="enable-risk-warning" checked>
+                        <span>启用风险预警</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="show-heatmap">
+                        <span>显示热力图</span>
+                    </label>
+                    <div style="margin-top: 5px;">
+                        <label style="font-size: 12px; color: rgba(255,255,255,0.6); display: block; margin-bottom: 5px;">
+                            热力图透明度: <span id="heatmap-opacity-value">70%</span>
+                        </label>
+                        <input type="range" id="heatmap-opacity" min="10" max="100" value="70">
+                    </div>
+                </div>
+                <button id="apply-display-settings" class="btn btn-secondary" style="width: 100%; margin-top: 10px;">
+                    应用设置
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Toast 提示 -->
+    <div class="toast" id="toast"></div>
+    
+    <script>
+        let isRunning = false;
+        let statsInterval = null;
+        let selectedVideoPath = null;
+        
+        // ========== 新模块函数定义 ==========
+        
+        // 获取所有车辆驾驶行为画像
+        function fetchDriverProfiles() {
+            fetch('/api/driver_profiles')
+                .then(res => res.json())
+                .then(data => {
+                    const select = document.getElementById('driver-select');
+                    const profiles = data.profiles || {};
+                    const trackIds = Object.keys(profiles);
+                    
+                    if (trackIds.length > 0) {
+                        select.innerHTML = '<option value="">选择车辆ID</option>' + 
+                            trackIds.map(id => `<option value="${id}">车辆 ${id}</option>`).join('');
+                    }
+                })
+                .catch(err => console.error('获取驾驶行为画像失败:', err));
+        }
+        
+        // 加载指定车辆的驾驶行为画像
+        function loadDriverProfile() {
+            const trackId = document.getElementById('driver-select').value;
+            if (!trackId) {
+                document.getElementById('profile-content').innerHTML = 
+                    '<div style="text-align: center; color: rgba(255,255,255,0.4); font-size: 13px;">请选择车辆查看画像</div>';
+                return;
+            }
+            
+            fetch(`/api/driver_profile/${trackId}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) {
+                        document.getElementById('profile-content').innerHTML = 
+                            '<div style="text-align: center; color: rgba(255,255,255,0.4); font-size: 13px;">画像数据不存在</div>';
+                        return;
+                    }
+                    
+                    const profile = data;
+                    const content = `
+                        <div style="font-size: 12px;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                                <div style="background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px;">
+                                    <div style="color: rgba(255,255,255,0.6); font-size: 11px;">合规率</div>
+                                    <div style="font-size: 18px; font-weight: bold; color: #00ff88;">${profile.compliance_rate || 0}%</div>
+                                </div>
+                                <div style="background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px;">
+                                    <div style="color: rgba(255,255,255,0.6); font-size: 11px;">激进指数</div>
+                                    <div style="font-size: 18px; font-weight: bold; color: ${profile.aggression_index > 70 ? '#ff4444' : '#ffaa00'};">${profile.aggression_index || 0}</div>
+                                </div>
+                                <div style="background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px;">
+                                    <div style="color: rgba(255,255,255,0.6); font-size: 11px;">违规次数</div>
+                                    <div style="font-size: 18px; font-weight: bold; color: #ff6b6b;">${profile.violation_count || 0}</div>
+                                </div>
+                                <div style="background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px;">
+                                    <div style="color: rgba(255,255,255,0.6); font-size: 11px;">平均车速</div>
+                                    <div style="font-size: 18px; font-weight: bold; color: #44aaff;">${profile.avg_speed || 0} km/h</div>
+                                </div>
+                            </div>
+                            <div style="margin-top: 10px;">
+                                <div style="color: rgba(255,255,255,0.6); font-size: 11px; margin-bottom: 5px;">行为标签</div>
+                                <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+                                    ${profile.behavior_tags?.map(tag => 
+                                        `<span style="padding: 3px 8px; background: rgba(68, 170, 255, 0.2); border-radius: 10px; font-size: 11px;">${tag}</span>`
+                                    ).join('') || '<span style="color: rgba(255,255,255,0.4); font-size: 11px;">暂无标签</span>'}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    document.getElementById('profile-content').innerHTML = content;
+                })
+                .catch(err => console.error('加载驾驶行为画像失败:', err));
+        }
+        
+        // 获取风险评估汇总
+        function fetchRiskSummary() {
+            fetch('/api/risk_summary')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) return;
+                    
+                    document.getElementById('risk-total').textContent = data.total_conflicts || 0;
+                    document.getElementById('risk-active').textContent = data.active_conflicts || 0;
+                    document.getElementById('risk-high').textContent = data.high_risk_count || 0;
+                    document.getElementById('risk-medium').textContent = data.medium_risk_count || 0;
+                    
+                    fetchHighRiskEvents();
+                })
+                .catch(err => console.error('获取风险汇总失败:', err));
+        }
+        
+        // 获取高风险事件
+        function fetchHighRiskEvents() {
+            fetch('/api/high_risk_events')
+                .then(res => res.json())
+                .then(data => {
+                    const events = data.events || [];
+                    const list = document.getElementById('risk-events-list');
+                    
+                    if (events.length > 0) {
+                        list.innerHTML = events.slice(-5).map((event, i) => {
+                            const riskColor = event.risk_level === 'high' ? '#ff4444' : '#ffaa00';
+                            return `
+                                <div style="padding: 8px; background: rgba(255,255,255,0.05); border-radius: 6px; margin-bottom: 5px; border-left: 3px solid ${riskColor};">
+                                    <div style="font-size: 11px; color: ${riskColor}; font-weight: bold;">${event.risk_level === 'high' ? '高风险' : '中风险'}</div>
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.6);">TTC: ${event.ttc?.toFixed(2)}s</div>
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.4);">时间: ${event.timestamp}</div>
+                                </div>
+                            `;
+                        }).join('');
+                    } else {
+                        list.innerHTML = '<div style="text-align: center; color: rgba(255,255,255,0.4); font-size: 13px;">暂无风险事件</div>';
+                    }
+                })
+                .catch(err => console.error('获取高风险事件失败:', err));
+        }
+        
+        // 获取车道统计数据
+        function fetchLaneStatistics() {
+            fetch('/api/lane_statistics')
+                .then(res => res.json())
+                .then(data => {
+                    const lanes = data.lanes || {};
+                    const tbody = document.getElementById('lane-table-body');
+                    
+                    if (Object.keys(lanes).length > 0) {
+                        tbody.innerHTML = Object.entries(lanes).map(([lane, stats]) => {
+                            const congestionColor = stats.congestion_index > 70 ? '#ff4444' : 
+                                                  stats.congestion_index > 40 ? '#ffaa00' : '#00ff88';
+                            return `
+                                <tr>
+                                    <td style="color: rgba(255,255,255,0.8);">${lane}</td>
+                                    <td style="color: rgba(255,255,255,0.8);">${stats.vehicle_count || 0}</td>
+                                    <td style="color: rgba(255,255,255,0.8);">${(stats.avg_speed || 0).toFixed(1)} km/h</td>
+                                    <td style="color: ${congestionColor}; font-weight: bold;">${(stats.congestion_index || 0).toFixed(0)}%</td>
+                                </tr>
+                            `;
+                        }).join('');
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: rgba(255,255,255,0.4);">暂无数据</td></tr>';
+                    }
+                    
+                    fetchOptimizationSuggestions();
+                })
+                .catch(err => console.error('获取车道统计失败:', err));
+        }
+        
+        // 获取优化建议
+        function fetchOptimizationSuggestions() {
+            fetch('/api/optimization_suggestions')
+                .then(res => res.json())
+                .then(data => {
+                    const suggestions = data.suggestions || [];
+                    document.getElementById('suggestions-text').innerHTML = suggestions.join('<br>');
+                })
+                .catch(err => console.error('获取优化建议失败:', err));
+        }
+        
+        // 可折叠卡片功能
+        function toggleCard(cardId) {
+            const card = document.getElementById(cardId);
+            const btn = event.target;
+            
+            if (card.style.display === 'none' || card.style.display === '') {
+                card.style.display = 'block';
+                btn.textContent = '▼';
+            } else {
+                card.style.display = 'none';
+                btn.textContent = '▶';
+            }
+        }
+        
+        // ========== 原有函数 ==========
+        
+        // 显示Toast提示
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type} show`;
+            setTimeout(() => {
+                toast.className = 'toast';
+            }, 3000);
+        }
+        
+        // 加载视频列表
+        function loadVideoList() {
+            fetch('/api/videos')
+                .then(res => res.json())
+                .then(data => {
+                    const videoList = document.getElementById('video-list');
+                    const sourceSelect = document.getElementById('source-select');
+                    
+                    if (data.videos && data.videos.length > 0) {
+                        videoList.innerHTML = data.videos.map(video => `
+                            <div class="video-item" data-path="${video.path}" onclick="selectVideo('${video.path}')">
+                                <div class="video-name">${video.name}</div>
+                                <div class="video-actions">
+                                    <button class="video-action-btn" onclick="event.stopPropagation(); deleteVideo('${video.path}')">×</button>
+                                </div>
+                            </div>
+                        `).join('');
+                        
+                        // 更新底部下拉框中的视频列表
+                        const optgroup = sourceSelect.querySelector('optgroup');
+                        optgroup.innerHTML = data.videos.map(video => `
+                            <option value="${video.path}">${video.name}</option>
+                        `).join('');
+                    } else {
+                        videoList.innerHTML = '<div style="text-align: center; color: rgba(255,255,255,0.4); font-size: 13px;">暂无视频，上传一个吧！</div>';
+                        // 清空底部下拉框中的视频列表
+                        const optgroup = sourceSelect.querySelector('optgroup');
+                        optgroup.innerHTML = '<option value="" disabled>暂无视频</option>';
+                    }
+                })
+                .catch(err => console.error('加载视频列表失败:', err));
+        }
+        
+        // 选择视频
+        function selectVideo(path) {
+            selectedVideoPath = path;
+            
+            // 更新选中状态
+            document.querySelectorAll('.video-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+            document.querySelector(`[data-path="${path}"]`).classList.add('selected');
+            
+            // 更新两个下拉框：右侧设置区域和底部控制区域
+            const selectModal = document.getElementById('source-select-modal');
+            const selectBottom = document.getElementById('source-select');
+            selectModal.value = path;
+            selectBottom.value = path;
+            
+            showToast(`已选择: ${path.split('/').pop()}`);
+        }
+        
+        // 删除视频
+        function deleteVideo(path) {
+            if (!confirm(`确定要删除视频 "${path.split('/').pop()}" 吗？`)) {
+                return;
+            }
+            
+            fetch('/api/delete_video', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast('删除成功');
+                    loadVideoList();
+                    if (selectedVideoPath === path) {
+                        selectedVideoPath = null;
+                    }
+                } else {
+                    showToast(data.message || '删除失败', 'error');
+                }
+            });
+        }
+        
+        // 文件上传处理（在DOM加载完成后初始化）
+        function initUpload() {
+            const uploadArea = document.getElementById('upload-area');
+            const fileInput = document.getElementById('video-file');
+            const uploadProgress = document.getElementById('upload-progress');
+            const uploadProgressFill = document.getElementById('upload-progress-fill');
+            
+            if (!uploadArea || !fileInput) {
+                console.error('上传区域或文件输入元素未找到');
+                return;
+            }
+            
+            // 点击上传区域触发文件选择
+            uploadArea.addEventListener('click', (e) => {
+                e.stopPropagation();
+                fileInput.click();
+            });
+            
+            // 拖拽上传
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                uploadArea.classList.add('dragover');
+            });
+            
+            uploadArea.addEventListener('dragleave', (e) => {
+                e.stopPropagation();
+                uploadArea.classList.remove('dragover');
+            });
+            
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                uploadArea.classList.remove('dragover');
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    uploadFile(files[0], uploadProgress, uploadProgressFill);
+                }
+            });
+            
+            // 文件选择后上传
+            fileInput.addEventListener('change', (e) => {
+                const files = e.target.files;
+                if (files.length > 0) {
+                    uploadFile(files[0], uploadProgress, uploadProgressFill);
+                }
+            });
+        }
+        
+        // 上传文件
+        function uploadFile(file, uploadProgress, uploadProgressFill) {
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            if (uploadProgress) uploadProgress.style.display = 'block';
+            if (uploadProgressFill) uploadProgressFill.style.width = '0%';
+            
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/upload');
+            
+            xhr.upload.addEventListener('progress', (e) => {
+                if (e.lengthComputable && uploadProgressFill) {
+                    const percent = (e.loaded / e.total) * 100;
+                    uploadProgressFill.style.width = `${percent}%`;
+                }
+            });
+            
+            xhr.onload = () => {
+                if (uploadProgress) uploadProgress.style.display = 'none';
+                if (uploadProgressFill) uploadProgressFill.style.width = '0%';
+                
+                if (xhr.status === 200) {
+                    const response = JSON.parse(xhr.responseText);
+                    if (response.status === 'success') {
+                        showToast('视频上传成功');
+                        loadVideoList();
+                    } else {
+                        showToast(response.message || '上传失败', 'error');
+                    }
+                } else {
+                    showToast('上传失败', 'error');
+                }
+            };
+            
+            xhr.onerror = () => {
+                if (uploadProgress) uploadProgress.style.display = 'none';
+                showToast('上传失败，请检查网络', 'error');
+            };
+            
+            xhr.send(formData);
+        }
+        
+        // 获取统计数据
+        function fetchStatistics() {
+            fetch('/api/statistics')
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('total-count').textContent = data.total_count || 0;
+                    document.getElementById('avg-speed').textContent = (data.avg_speed || 0) + ' km/h';
+                    document.getElementById('max-speed').textContent = (data.max_speed || 0) + ' km/h';
+                    document.getElementById('congestion').textContent = (data.congestion_index || 0) + '%';
+                    
+                    // 更新拥堵条
+                    const congestion = data.congestion_index || 0;
+                    const fill = document.getElementById('congestion-fill');
+                    fill.style.width = congestion + '%';
+                    
+                    if (congestion < 30) {
+                        fill.className = 'congestion-fill low';
+                    } else if (congestion < 60) {
+                        fill.className = 'congestion-fill medium';
+                    } else {
+                        fill.className = 'congestion-fill high';
+                    }
+                    
+                    // 更新车型分布
+                    document.getElementById('car-count').textContent = data.vehicle_counts?.轿车 || 0;
+                    document.getElementById('truck-count').textContent = data.vehicle_counts?.货车 || 0;
+                    document.getElementById('bus-count').textContent = data.vehicle_counts?.公交 || 0;
+                    
+                    // 更新警告列表
+                    const warningsList = document.getElementById('warnings-list');
+                    const warnings = data.warnings || [];
+                    if (warnings.length > 0) {
+                        warningsList.innerHTML = warnings.slice(-5).map((w, i) => 
+                            `<div class="warning-item">${w.warning?.warning || '未知异常'}</div>`
+                        ).join('');
+                    } else {
+                        warningsList.innerHTML = '<div style="text-align: center; color: rgba(255,255,255,0.4); font-size: 13px;">暂无异常</div>';
+                    }
+                })
+                .catch(err => console.error('获取统计数据失败:', err));
+        }
+        
+        // 获取状态
+        function fetchStatus() {
+            fetch('/api/status')
+                .then(res => res.json())
+                .then(data => {
+                    isRunning = data.is_running;
+                    updateStatusUI();
+                });
+        }
+        
+        // 更新状态UI
+        function updateStatusUI() {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            
+            if (isRunning) {
+                dot.className = 'status-dot running';
+                text.textContent = '系统运行中';
+            } else {
+                dot.className = 'status-dot stopped';
+                text.textContent = '系统未运行';
+            }
+        }
+        
+        // 开始监测
+        document.getElementById('start-btn').addEventListener('click', () => {
+            if (isRunning) return;
+            
+            const source = document.getElementById('source-select').value;
+            
+            fetch('/api/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'started') {
+                    isRunning = true;
+                    updateStatusUI();
+                    
+                    // 定期获取统计数据
+                    statsInterval = setInterval(fetchStatistics, 1000);
+                    
+                    // 刷新视频流
+                    setTimeout(() => {
+                        document.getElementById('video-feed').src = '/video_feed?' + Date.now();
+                    }, 500);
+                }
+            });
+        });
+        
+        // 停止监测
+        document.getElementById('stop-btn').addEventListener('click', () => {
+            if (!isRunning) return;
+            
+            fetch('/api/stop', { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'stopped') {
+                    isRunning = false;
+                    updateStatusUI();
+                    
+                    if (statsInterval) {
+                        clearInterval(statsInterval);
+                        statsInterval = null;
+                    }
+                }
+            });
+        });
+        
+        // 截图
+        document.getElementById('snapshot-btn').addEventListener('click', () => {
+            fetch('/api/snapshot', { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast('截图已保存: ' + data.filename);
+                }
+            });
+        });
+        
+        // 导出数据
+        document.getElementById('export-btn').addEventListener('click', () => {
+            fetch('/api/export', { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast('数据已导出');
+                }
+            });
+        });
+        
+        // 图像增强设置
+        document.getElementById('apply-enhance').addEventListener('click', () => {
+            const enhanceEnabled = document.getElementById('enhance-enabled').checked;
+            const retinexEnabled = document.getElementById('retinex-enabled').checked;
+            const claheEnabled = document.getElementById('clahe-enabled').checked;
+            
+            fetch('/api/enhance', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    enable: enhanceEnabled,
+                    retinex: retinexEnabled,
+                    clahe: claheEnabled
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast('图像增强设置已应用');
+                }
+            });
+        });
+        
+        // 定时检查状态
+        setInterval(fetchStatus, 2000);
+        
+        // 初始化
+        loadVideoList();
+        fetchStatistics();
+        
+        // ========== 风险评估预警模块 ==========
+        
+        // 获取风险评估汇总
+        function fetchRiskSummary() {
+            fetch('/api/risk_summary')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) return;
+                    
+                    document.getElementById('risk-total').textContent = data.total_conflicts || 0;
+                    document.getElementById('risk-active').textContent = data.active_conflicts || 0;
+                    document.getElementById('risk-high').textContent = data.high_risk_count || 0;
+                    document.getElementById('risk-medium').textContent = data.medium_risk_count || 0;
+                    
+                    // 更新高风险事件列表
+                    fetchHighRiskEvents();
+                })
+                .catch(err => console.error('获取风险汇总失败:', err));
+        }
+        
+        // 获取高风险事件
+        function fetchHighRiskEvents() {
+            fetch('/api/high_risk_events')
+                .then(res => res.json())
+                .then(data => {
+                    const events = data.events || [];
+                    const list = document.getElementById('risk-events-list');
+                    
+                    if (events.length > 0) {
+                        list.innerHTML = events.slice(-5).map((event, i) => {
+                            const riskColor = event.risk_level === 'high' ? '#ff4444' : '#ffaa00';
+                            return `
+                                <div style="padding: 8px; background: rgba(255,255,255,0.05); border-radius: 6px; margin-bottom: 5px; border-left: 3px solid ${riskColor};">
+                                    <div style="font-size: 11px; color: ${riskColor}; font-weight: bold;">${event.risk_level === 'high' ? '高风险' : '中风险'}</div>
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.6);">TTC: ${event.ttc?.toFixed(2)}s</div>
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.4);">时间: ${event.timestamp}</div>
+                                </div>
+                            `;
+                        }).join('');
+                    } else {
+                        list.innerHTML = '<div style="text-align: center; color: rgba(255,255,255,0.4); font-size: 13px;">暂无风险事件</div>';
+                    }
+                })
+                .catch(err => console.error('获取高风险事件失败:', err));
+        }
+        
+        // ========== 车道流量分析模块 ==========
+        
+        // 获取车道统计数据
+        function fetchLaneStatistics() {
+            fetch('/api/lane_statistics')
+                .then(res => res.json())
+                .then(data => {
+                    const lanes = data.lanes || {};
+                    const tbody = document.getElementById('lane-table-body');
+                    
+                    if (Object.keys(lanes).length > 0) {
+                        tbody.innerHTML = Object.entries(lanes).map(([lane, stats]) => {
+                            const congestionColor = stats.congestion_index > 70 ? '#ff4444' : 
+                                                  stats.congestion_index > 40 ? '#ffaa00' : '#00ff88';
+                            return `
+                                <tr>
+                                    <td style="color: rgba(255,255,255,0.8);">${lane}</td>
+                                    <td style="color: rgba(255,255,255,0.8);">${stats.vehicle_count || 0}</td>
+                                    <td style="color: rgba(255,255,255,0.8);">${(stats.avg_speed || 0).toFixed(1)} km/h</td>
+                                    <td style="color: ${congestionColor}; font-weight: bold;">${(stats.congestion_index || 0).toFixed(0)}%</td>
+                                </tr>
+                            `;
+                        }).join('');
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: rgba(255,255,255,0.4);">暂无数据</td></tr>';
+                    }
+                    
+                    // 获取优化建议
+                    fetchOptimizationSuggestions();
+                })
+                .catch(err => console.error('获取车道统计失败:', err));
+        }
+        
+        // 获取优化建议
+        function fetchOptimizationSuggestions() {
+            fetch('/api/optimization_suggestions')
+                .then(res => res.json())
+                .then(data => {
+                    const suggestions = data.suggestions || [];
+                    document.getElementById('suggestions-text').innerHTML = suggestions.join('<br>');
+                })
+                .catch(err => console.error('获取优化建议失败:', err));
+        }
+        
+        // ========== 显示设置模块 ==========
+        
+        // 应用显示设置
+        document.getElementById('apply-display-settings').addEventListener('click', () => {
+            const settings = {
+                show_trajectory: document.getElementById('show-trajectory').checked,
+                show_lane: document.getElementById('show-lane').checked,
+                enable_risk_warning: document.getElementById('enable-risk-warning').checked,
+                show_heatmap: document.getElementById('show-heatmap').checked,
+                heatmap_opacity: document.getElementById('heatmap-opacity').value / 100
+            };
+            
+            fetch('/api/display_settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast('显示设置已更新');
+                }
+            })
+            .catch(err => console.error('更新显示设置失败:', err));
+        });
+        
+        // 更新透明度显示
+        document.getElementById('heatmap-opacity').addEventListener('input', (e) => {
+            document.getElementById('heatmap-opacity-value').textContent = e.target.value + '%';
+        });
+        
+        // 可折叠卡片功能
+        function toggleCard(cardId) {
+            const card = document.getElementById(cardId);
+            const btn = event.target;
+            
+            if (card.style.display === 'none' || card.style.display === '') {
+                card.style.display = 'block';
+                btn.textContent = '▼';
+            } else {
+                card.style.display = 'none';
+                btn.textContent = '▶';
+            }
+        }
+        
+        // 页面加载时展开所有卡片并启动定时任务
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.collapse-content').forEach(card => {
+                card.style.display = 'block';
+            });
+            
+            // 初始化上传功能
+            initUpload();
+            
+            // 定期获取新模块数据
+            setInterval(fetchDriverProfiles, 2000);
+            setInterval(fetchRiskSummary, 2000);
+            setInterval(fetchLaneStatistics, 2000);
+        });
+    </script>
+</body>
+</html>
