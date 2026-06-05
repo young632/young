@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>视频流测试</title>
+</head>
+<body>
+    <h1>视频流测试</h1>
+    <button onclick="startStream()">开始播放</button>
+    <button onclick="stopStream()">停止播放</button>
+    <br>
+    <img id="video" width="640" height="360" style="border: 1px solid black;">
+    
+    <script>
+        function startStream() {
+            var img = document.getElementById('video');
+            img.src = '/video_feed?file=traffic_rideo.mp4&mode=normal';
+        }
+        
+        function stopStream() {
+            var img = document.getElementById('video');
+            img.src = '';
+        }
+    </script>
+</body>
+</html>

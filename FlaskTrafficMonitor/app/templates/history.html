@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% set active_page = 'history' %}
+{% set title = '历史记录' %}
+{% set subtitle = '已处理视频列表' %}
+
+{% block content %}
+<div class="row animate-fade-in">
+    <div class="col-lg-12">
+        <div class="card-dark">
+            <div class="card-header-dark card-header d-flex justify-content-between">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-history mr-2"></i> 历史记录
+                </h5>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-primary-custom" id="refresh-list">
+                        <i class="fas fa-refresh mr-1"></i> 刷新列表
+                    </button>
+                    <button class="btn btn-sm btn-danger" id="clear-all">
+                        <i class="fas fa-trash mr-1"></i> 清空记录
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if files %}
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {% for file in files %}
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-primary transition-colors">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center">
+                                <i class="fas fa-video text-blue mr-2"></i>
+                                <span class="font-medium">{{ file.name }}</span>
+                            </div>
+                            <button class="btn btn-xs btn-danger delete-btn" data-filename="{{ file.name }}">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                        <div class="text-sm text-secondary mb-3">
+                            <div>原文件名: {{ file.original_name }}</div>
+                            <div>大小: {{ file.size }}</div>
+                            <div>处理时间: {{ file.date }}</div>
+                        </div>
+                        <div class="flex gap-2">
+                            <button class="btn btn-primary-custom btn-sm flex-1 play-btn" data-filename="{{ file.name }}">
+                                <i class="fas fa-play mr-1"></i> 播放
+                            </button>
+                            <a href="/download/{{ file.name }}" class="btn btn-secondary btn-sm flex-1">
+                                <i class="fas fa-download mr-1"></i> 下载
+                            </a>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-12">
+                    <i class="fas fa-folder-open" style="font-size: 48px; color: #4b5563; margin-bottom: 16px;"></i>
+                    <p class="text-lg text-secondary">暂无历史记录</p>
+                    <p class="text-sm text-gray-500 mt-2">上传视频并处理后，记录将显示在这里</p>
+                    <a href="/upload" class="btn btn-primary-custom mt-4">
+                        <i class="fas fa-upload mr-2"></i> 上传视频
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 视频播放模态框 -->
+<div class="modal fade" id="videoModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark border-gray-700">
+            <div class="modal-header border-gray-700">
+                <h5 class="modal-title" id="modal-title">播放视频</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="video-container">
+                    <video id="modal-video" controls class="w-full">
+                        <source id="modal-video-source" src="" type="video/mp4">
+                    </video>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 播放视频
+function playVideo(filename) {
+    const modal = new bootstrap.Modal(document.getElementById('videoModal'));
+    const videoSource = document.getElementById('modal-video-source');
+    videoSource.src = `/outputs/${filename}`;
+    document.getElementById('modal-video').load();
+    document.getElementById('modal-title').textContent = `播放: ${filename}`;
+    modal.show();
+}
+
+// 刷新列表
+document.getElementById('refresh-list').addEventListener('click', () => {
+    location.reload();
+});
+
+// 清空所有记录
+document.getElementById('clear-all').addEventListener('click', () => {
+    if (confirm('确定清空所有历史记录？此操作不可撤销！')) {
+        fetch('/clear_history', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                location.reload();
+            } else {
+                alert('清空失败: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('清空失败:', error);
+            alert('清空失败');
+        });
+    }
+});
+
+// 删除单个文件
+document.querySelectorAll('.delete-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const filename = this.dataset.filename;
+        if (confirm(`确定删除 "${filename}"？`)) {
+            fetch(`/delete_output/${filename}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    location.reload();
+                } else {
+                    alert('删除失败: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('删除失败:', error);
+                alert('删除失败');
+            });
+        }
+    });
+});
+
+// 播放按钮
+document.querySelectorAll('.play-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        playVideo(this.dataset.filename);
+    });
+});
+</script>
+{% endblock %}

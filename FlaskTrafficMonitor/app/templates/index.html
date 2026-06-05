@@ -1,0 +1,430 @@
+{% extends "base.html" %}
+
+{% set active_page = 'index' %}
+{% set title = '智能交通视觉监测系统' %}
+{% set subtitle = '实时交通数据大屏' %}
+
+{% block content %}
+<div class="row animate-fade-in">
+    <!-- 统计卡片 -->
+    <div class="col-lg-3 col-md-6 mb-4">
+        <div class="card-dark stat-card p-4">
+            <div class="stat-value" id="total-count">0</div>
+            <div class="stat-label">总车流量</div>
+            <div class="mt-2">
+                <i class="fas fa-trending-up text-green mr-2"></i>
+                <span class="text-sm text-secondary">今日数据</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-3 col-md-6 mb-4">
+        <div class="card-dark stat-card p-4">
+            <div class="stat-value" id="avg-speed">0</div>
+            <div class="stat-label">平均车速 (km/h)</div>
+            <div class="mt-2">
+                <i class="fas fa-gauge text-blue mr-2"></i>
+                <span class="text-sm text-secondary">实时监测</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-3 col-md-6 mb-4">
+        <div class="card-dark stat-card p-4">
+            <div class="stat-value" id="current-vehicles">0</div>
+            <div class="stat-label">当前车辆数</div>
+            <div class="mt-2">
+                <i class="fas fa-car text-yellow mr-2"></i>
+                <span class="text-sm text-secondary">道路状况</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-3 col-md-6 mb-4">
+        <div class="card-dark stat-card p-4">
+            <div class="stat-value" id="congestion">0</div>
+            <div class="stat-label">拥堵指数 (%)</div>
+            <div class="mt-2">
+                <i class="fas fa-traffic-light text-red mr-2"></i>
+                <span class="text-sm text-secondary">交通状态</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 车型统计卡片 -->
+    <div class="col-lg-4 mb-4">
+        <div class="card-dark">
+            <div class="card-header-dark card-header">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-chart-pie mr-2"></i> 车型分布
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="vehicleTypeChart"></canvas>
+                </div>
+                <div class="mt-4 row">
+                    <div class="col-4 text-center">
+                        <div class="w-3 h-3 rounded-full bg-green mx-auto mb-1"></div>
+                        <span class="text-sm text-secondary">轿车</span>
+                        <div class="text-lg font-bold" id="car-count">0</div>
+                    </div>
+                    <div class="col-4 text-center">
+                        <div class="w-3 h-3 rounded-full bg-orange mx-auto mb-1"></div>
+                        <span class="text-sm text-secondary">货车</span>
+                        <div class="text-lg font-bold" id="truck-count">0</div>
+                    </div>
+                    <div class="col-4 text-center">
+                        <div class="w-3 h-3 rounded-full bg-cyan mx-auto mb-1"></div>
+                        <span class="text-sm text-secondary">公交</span>
+                        <div class="text-lg font-bold" id="bus-count">0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 车流量趋势图 -->
+    <div class="col-lg-4 mb-4">
+        <div class="card-dark">
+            <div class="card-header-dark card-header">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-chart-line mr-2"></i> 车流量趋势
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="trafficTrendChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 车速分布图 -->
+    <div class="col-lg-4 mb-4">
+        <div class="card-dark">
+            <div class="card-header-dark card-header">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-gauge mr-2"></i> 车速分布
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="speedChart"></canvas>
+                </div>
+                <div class="mt-3 row text-center">
+                    <div class="col-4">
+                        <span class="text-xs text-secondary">最低</span>
+                        <div class="text-sm font-bold" id="min-speed">0</div>
+                    </div>
+                    <div class="col-4">
+                        <span class="text-xs text-secondary">平均</span>
+                        <div class="text-sm font-bold" id="avg-speed-stat">0</div>
+                    </div>
+                    <div class="col-4">
+                        <span class="text-xs text-secondary">最高</span>
+                        <div class="text-sm font-bold" id="max-speed">0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 实时监控预览 -->
+    <div class="col-lg-8 mb-4">
+        <div class="card-dark">
+            <div class="card-header-dark card-header d-flex justify-content-between">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-video mr-2"></i> 实时监控
+                </h5>
+                <div class="d-flex align-items-center gap-3">
+                    <span class="traffic-light green mr-2"></span>
+                    <span class="text-sm text-secondary">直播中</span>
+                    <div class="d-flex gap-2">
+                        <input type="file" id="video-upload" accept="video/*" class="d-none">
+                        <button class="btn btn-primary-custom btn-sm" id="upload-btn">
+                            <i class="fas fa-upload mr-1"></i> 上传视频
+                        </button>
+                        <button class="btn btn-secondary btn-sm" id="start-monitor" disabled>
+                            <i class="fas fa-play mr-1"></i> 开始监测
+                        </button>
+                        <button class="btn btn-danger btn-sm" id="stop-monitor" disabled>
+                            <i class="fas fa-stop mr-1"></i> 停止
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="video-container">
+                    <img id="live-preview" src="" style="display: none; width: 100%;" />
+                    <div class="placeholder-content" id="video-placeholder">
+                        <i class="fas fa-video" style="font-size: 64px; color: #4b5563;"></i>
+                        <p class="mt-4 text-secondary">点击上传视频开始实时监测</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 实时数据面板 -->
+    <div class="col-lg-4 mb-4">
+        <div class="card-dark">
+            <div class="card-header-dark card-header">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-info-circle mr-2"></i> 实时数据
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="list-group">
+                    <div class="list-group-item bg-dark border-dark">
+                        <div class="d-flex justify-content-between">
+                            <span class="text-secondary">处理帧数</span>
+                            <span class="font-weight-bold" id="processed-frames">0</span>
+                        </div>
+                    </div>
+                    <div class="list-group-item bg-dark border-dark">
+                        <div class="d-flex justify-content-between">
+                            <span class="text-secondary">轿车</span>
+                            <span class="font-weight-bold text-green" id="car-stat">0</span>
+                        </div>
+                    </div>
+                    <div class="list-group-item bg-dark border-dark">
+                        <div class="d-flex justify-content-between">
+                            <span class="text-secondary">货车</span>
+                            <span class="font-weight-bold text-orange" id="truck-stat">0</span>
+                        </div>
+                    </div>
+                    <div class="list-group-item bg-dark border-dark">
+                        <div class="d-flex justify-content-between">
+                            <span class="text-secondary">公交</span>
+                            <span class="font-weight-bold text-cyan" id="bus-stat">0</span>
+                        </div>
+                    </div>
+                    <div class="list-group-item bg-dark border-dark">
+                        <div class="d-flex justify-content-between">
+                            <span class="text-secondary">拥堵状态</span>
+                            <span class="font-weight-bold" id="congestion-status">畅通</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 模拟数据
+let trafficData = [];
+let speedData = [];
+
+// 车型分布图表
+const vehicleCtx = document.getElementById('vehicleTypeChart').getContext('2d');
+const vehicleChart = new Chart(vehicleCtx, {
+    type: 'doughnut',
+    data: {
+        labels: ['轿车', '货车', '公交'],
+        datasets: [{
+            data: [60, 25, 15],
+            backgroundColor: ['#00ff88', '#ff8c00', '#00d4ff'],
+            borderWidth: 0,
+            cutout: '70%'
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                display: false
+            }
+        }
+    }
+});
+
+// 车流量趋势图表
+const trendCtx = document.getElementById('trafficTrendChart').getContext('2d');
+const trendChart = new Chart(trendCtx, {
+    type: 'line',
+    data: {
+        labels: Array.from({length: 10}, (_, i) => `${i+1}min`),
+        datasets: [{
+            label: '车流量',
+            data: [120, 150, 135, 180, 165, 200, 175, 190, 210, 185],
+            borderColor: '#007bff',
+            backgroundColor: 'rgba(0, 123, 255, 0.1)',
+            fill: true,
+            tension: 0.4,
+            pointRadius: 0,
+            borderWidth: 2
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                display: false
+            }
+        },
+        scales: {
+            x: {
+                grid: { color: 'rgba(255,255,255,0.05)' },
+                ticks: { color: '#9ca3af', font: { size: 10 } }
+            },
+            y: {
+                grid: { color: 'rgba(255,255,255,0.05)' },
+                ticks: { color: '#9ca3af', font: { size: 10 } }
+            }
+        }
+    }
+});
+
+// 车速分布图表
+const speedCtx = document.getElementById('speedChart').getContext('2d');
+const speedChart = new Chart(speedCtx, {
+    type: 'bar',
+    data: {
+        labels: ['0-20', '20-40', '40-60', '60-80', '80+'],
+        datasets: [{
+            data: [15, 35, 30, 15, 5],
+            backgroundColor: [
+                '#ef4444', '#f59e0b', '#00ff88', '#00d4ff', '#8b5cf6'
+            ],
+            borderRadius: 4,
+            borderWidth: 0
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                display: false
+            }
+        },
+        scales: {
+            x: {
+                grid: { display: false },
+                ticks: { color: '#9ca3af', font: { size: 10 } }
+            },
+            y: {
+                grid: { color: 'rgba(255,255,255,0.05)' },
+                ticks: { color: '#9ca3af', font: { size: 10 } }
+            }
+        }
+    }
+});
+
+// 更新统计数据（使用新的API接口）
+function updateStats() {
+    fetch('/api/get_realtime_data')
+        .then(res => res.json())
+        .then(data => {
+            // 更新主统计卡片
+            document.getElementById('total-count').textContent = data.total_count || 0;
+            document.getElementById('avg-speed').textContent = Math.round(data.avg_speed || 0);
+            document.getElementById('current-vehicles').textContent = data.current_vehicles || 0;
+            
+            // 计算拥堵指数显示值
+            let congestionValue = 0;
+            if (data.congestion_level === '畅通') congestionValue = 20;
+            else if (data.congestion_level === '缓行') congestionValue = 50;
+            else if (data.congestion_level === '拥堵') congestionValue = 80;
+            document.getElementById('congestion').textContent = congestionValue;
+            
+            // 更新车型统计
+            document.getElementById('car-count').textContent = data.car_count || 0;
+            document.getElementById('truck-count').textContent = data.truck_count || 0;
+            document.getElementById('bus-count').textContent = data.bus_count || 0;
+            
+            document.getElementById('car-stat').textContent = data.car_count || 0;
+            document.getElementById('truck-stat').textContent = data.truck_count || 0;
+            document.getElementById('bus-stat').textContent = data.bus_count || 0;
+            
+            // 更新车速统计
+            document.getElementById('min-speed').textContent = Math.round(data.min_speed || 0);
+            document.getElementById('avg-speed-stat').textContent = Math.round(data.avg_speed || 0);
+            document.getElementById('max-speed').textContent = Math.round(data.max_speed || 0);
+            document.getElementById('processed-frames').textContent = data.processed_frames || 0;
+            
+            // 更新拥堵状态（使用新字段）
+            document.getElementById('congestion-status').textContent = data.congestion_level || '畅通';
+            
+            // 更新图表数据
+            const total = (data.car_count || 0) + (data.truck_count || 0) + (data.bus_count || 0);
+            if (total > 0) {
+                vehicleChart.data.datasets[0].data = [
+                    data.car_count || 0,
+                    data.truck_count || 0,
+                    data.bus_count || 0
+                ];
+                vehicleChart.update();
+            }
+        })
+        .catch(err => console.error('Error fetching stats:', err));
+}
+
+// 定时更新
+updateStats();
+let statsInterval = setInterval(updateStats, 2000);
+
+// 视频上传功能
+document.getElementById('upload-btn').addEventListener('click', function() {
+    document.getElementById('video-upload').click();
+});
+
+document.getElementById('video-upload').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const formData = new FormData();
+    formData.append('video', file);
+    
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/upload_video', true);
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            const response = JSON.parse(xhr.responseText);
+            if (response.status === 'success') {
+                alert('视频上传成功！');
+                document.getElementById('start-monitor').disabled = false;
+                document.getElementById('start-monitor').dataset.filename = response.filename;
+            } else {
+                alert('上传失败: ' + response.message);
+            }
+        } else {
+            alert('上传失败，请重试');
+        }
+    };
+    xhr.send(formData);
+});
+
+// 开始监测（默认使用带检测模式）
+document.getElementById('start-monitor').addEventListener('click', function() {
+    const filename = this.dataset.filename;
+    if (!filename) return;
+    
+    this.disabled = true;
+    document.getElementById('stop-monitor').disabled = false;
+    document.getElementById('upload-btn').disabled = true;
+    
+    // 显示视频流（带检测模式）
+    document.getElementById('video-placeholder').style.display = 'none';
+    const livePreview = document.getElementById('live-preview');
+    livePreview.style.display = 'block';
+    livePreview.src = `/stream_video?filename=${encodeURIComponent(filename)}&mode=detect`;
+});
+
+// 停止监测
+document.getElementById('stop-monitor').addEventListener('click', function() {
+    this.disabled = true;
+    document.getElementById('start-monitor').disabled = false;
+    document.getElementById('upload-btn').disabled = false;
+    
+    // 停止视频流
+    const livePreview = document.getElementById('live-preview');
+    livePreview.src = '';
+    livePreview.style.display = 'none';
+    document.getElementById('video-placeholder').style.display = 'flex';
+});
+</script>
+{% endblock %}

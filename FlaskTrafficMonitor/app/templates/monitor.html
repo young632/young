@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+
+{% set active_page = 'monitor' %}
+{% set title = '实时监控' %}
+{% set subtitle = '视频流实时检测' %}
+
+{% block content %}
+<div class="row animate-fade-in">
+    <!-- 视频选择区域 -->
+    <div class="col-lg-12 mb-4">
+        <div class="card-dark">
+            <div class="card-header-dark card-header">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-video mr-2"></i> 视频选择
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-3">
+                        <select id="video-select" class="form-select bg-dark border-gray-700 text-white">
+                            <option value="">选择视频文件</option>
+                            {% for video in videos %}
+                            <option value="{{ video }}">{{ video }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <select id="stream-mode" class="form-select bg-dark border-gray-700 text-white">
+                            <option value="detect">带检测</option>
+                            <option value="normal">仅视频</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <button class="btn btn-primary-custom mr-2" id="start-stream" disabled>
+                            <i class="fas fa-play mr-1"></i> 开始播放
+                        </button>
+                        <button class="btn btn-secondary" id="stop-stream" disabled>
+                            <i class="fas fa-stop mr-1"></i> 停止播放
+                        </button>
+                    </div>
+                    <div class="col-md-3 text-end">
+                        <span class="text-sm text-secondary">
+                            状态: <span id="stream-status" class="text-danger">未连接</span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 视频显示区域 -->
+    <div class="col-lg-8">
+        <div class="card-dark">
+            <div class="card-header-dark card-header d-flex justify-content-between">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-eye mr-2"></i> 实时检测画面
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="video-container" id="video-container" style="position: relative; width: 100%;">
+                    <div class="placeholder-content" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; background-color: #1a1a2e;">
+                        <i class="fas fa-video" style="font-size: 64px; color: #4b5563;"></i>
+                        <p class="mt-4 text-secondary">请选择视频并点击开始检测</p>
+                    </div>
+                    <img id="videoArea" style="display: none; width: 100%;" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧数据面板 -->
+    <div class="col-lg-4">
+        <!-- 实时统计卡片 -->
+        <div class="card-dark mb-4">
+            <div class="card-header-dark card-header">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-chart-line mr-2"></i> 实时统计
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-gray-800 rounded-lg p-3 text-center">
+                        <div class="text-2xl font-bold text-primary" id="total-count">0</div>
+                        <div class="text-sm text-secondary">总车流量</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-3 text-center">
+                        <div class="text-2xl font-bold text-blue" id="avg-speed">0</div>
+                        <div class="text-sm text-secondary">平均车速 (km/h)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 车型统计 -->
+        <div class="card-dark mb-4">
+            <div class="card-header-dark card-header">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-car mr-2"></i> 车型统计
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="space-y-3">
+                    <div class="flex justify-between items-center">
+                        <span class="text-secondary">轿车</span>
+                        <span class="text-white font-medium" id="car-count">0</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-secondary">公交车</span>
+                        <span class="text-white font-medium" id="bus-count">0</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-secondary">货车</span>
+                        <span class="text-white font-medium" id="truck-count">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 拥堵状态 -->
+        <div class="card-dark">
+            <div class="card-header-dark card-header">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-traffic-light mr-2"></i> 拥堵状态
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="text-center">
+                    <div class="text-4xl font-bold mb-2" id="congestion-value">0</div>
+                    <div class="text-sm" id="congestion-status">畅通</div>
+                    <div class="mt-3">
+                        <div class="w-full bg-gray-700 rounded-full h-3">
+                            <div class="h-3 rounded-full transition-all bg-green" id="congestion-bar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 播放视频
+function play() {
+    var file = document.getElementById("video-select").value;
+    var mode = document.getElementById("stream-mode").value;
+    
+    console.log('播放文件:', file);
+    console.log('播放模式:', mode);
+    
+    var img = document.getElementById("videoArea");
+    img.src = '/video_feed?file=' + encodeURIComponent(file) + '&mode=' + mode;
+    img.style.display = 'block';
+    document.querySelector('.placeholder-content').style.display = 'none';
+    
+    document.getElementById('start-stream').disabled = true;
+    document.getElementById('stop-stream').disabled = false;
+    document.getElementById('video-select').disabled = true;
+    document.getElementById('stream-mode').disabled = true;
+    document.getElementById('stream-status').textContent = mode === 'detect' ? '检测中' : '播放中';
+    document.getElementById('stream-status').className = 'text-green';
+}
+
+// 停止播放
+function stop() {
+    document.getElementById("videoArea").src = "";
+    document.getElementById("videoArea").style.display = 'none';
+    document.querySelector('.placeholder-content').style.display = 'flex';
+    
+    document.getElementById('start-stream').disabled = false;
+    document.getElementById('stop-stream').disabled = true;
+    document.getElementById('video-select').disabled = false;
+    document.getElementById('stream-mode').disabled = false;
+    document.getElementById('stream-status').textContent = '已停止';
+    document.getElementById('stream-status').className = 'text-yellow';
+}
+
+// 定时刷新数据
+setInterval(function() {
+    fetch('/data')
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            console.log('收到数据:', data);
+            
+            document.getElementById('total-count').textContent = data.total_flow || 0;
+            document.getElementById('avg-speed').textContent = data.avg_speed || 0;
+            document.getElementById('car-count').textContent = data.car || 0;
+            document.getElementById('bus-count').textContent = data.bus || 0;
+            document.getElementById('truck-count').textContent = data.truck || 0;
+            
+            var congestionValue = data.congestion || 0;
+            var congestionLevel = congestionValue > 50 ? '拥堵' : '畅通';
+            document.getElementById('congestion-value').textContent = congestionValue;
+            document.getElementById('congestion-status').textContent = congestionLevel;
+            
+            var bar = document.getElementById('congestion-bar');
+            bar.className = 'h-3 rounded-full transition-all ' + (congestionLevel === '畅通' ? 'bg-green' : 'bg-red');
+            bar.style.width = congestionValue + '%';
+        })
+        .catch(function(error) { console.error('加载失败:', error); });
+}, 500);
+
+// 页面加载完成后绑定事件
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('start-stream').addEventListener('click', play);
+    document.getElementById('stop-stream').addEventListener('click', stop);
+    
+    document.getElementById('video-select').addEventListener('change', function() {
+        document.getElementById('start-stream').disabled = this.value === '';
+    });
+});
+</script>
+{% endblock %}

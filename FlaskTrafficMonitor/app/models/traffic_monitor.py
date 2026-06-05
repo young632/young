@@ -21,7 +21,6 @@ except ImportError:
 
 
 def calculate_iou(box1, box2):
-    """计算两个框的IoU"""
     x1, y1, w1, h1 = box1
     x2, y2, w2, h2 = box2
     xi1, yi1 = max(x1, x2), max(y1, y2)
@@ -32,14 +31,12 @@ def calculate_iou(box1, box2):
 
 
 def calculate_center_distance(box1, box2):
-    """计算两个框中心点距离"""
     cx1, cy1 = box1[0] + box1[2]//2, box1[1] + box1[3]//2
     cx2, cy2 = box2[0] + box2[2]//2, box2[1] + box2[3]//2
     return np.sqrt((cx1 - cx2)**2 + (cy1 - cy2)**2)
 
 
 class VehicleClassifier:
-    """车型分类器 - 严格限定三类车型：轿车、公交、货车"""
     VEHICLE_TYPES = {
         0: {'name': '轿车', 'color': (0, 255, 0), 'speed_factor': 1.0},
         1: {'name': '货车', 'color': (255, 140, 0), 'speed_factor': 0.7},
@@ -47,33 +44,29 @@ class VehicleClassifier:
     }
     
     def __init__(self):
-        self.type_history = {}  # 记录每辆车的历史分类，防止跳变
+        self.type_history = {}
         self.history_length = 5
     
     def classify(self, box, yolo_class=None):
-        """根据YOLO类别严格分类，只保留三类车型"""
         x, y, w, h = box
         area = w * h
         aspect_ratio = w / h if h > 0 else 0
         
-        # 严格基于COCO数据集类别，直接映射
-        if yolo_class == 2:  # car -> 轿车
+        if yolo_class == 2:
             return 0, 0.95
-        elif yolo_class == 5:  # bus -> 公交
+        elif yolo_class == 5:
             return 2, 0.95
-        elif yolo_class == 7:  # truck -> 货车
+        elif yolo_class == 7:
             return 1, 0.95
         
-        # 如果没有YOLO类别，使用尺寸特征作为后备
         if aspect_ratio > 2.2 and area > 15000:
-            return 2, 0.85  # 长条形 -> 公交
+            return 2, 0.85
         elif area > 12000 and aspect_ratio < 1.6:
-            return 1, 0.85  # 大型 -> 货车
+            return 1, 0.85
         else:
-            return 0, 0.80  # 中型 -> 轿车
+            return 0, 0.80
     
     def get_stable_type(self, track_id, current_type):
-        """获取稳定的车型，防止帧间跳变"""
         if track_id not in self.type_history:
             self.type_history[track_id] = []
         
@@ -81,30 +74,24 @@ class VehicleClassifier:
         if len(self.type_history[track_id]) > self.history_length:
             self.type_history[track_id].pop(0)
         
-        # 如果历史只有一个类型，直接返回
         if len(self.type_history[track_id]) == 1:
             return current_type
         
-        # 加权投票机制：最近的检测权重更高
         from collections import defaultdict
         type_weights = defaultdict(int)
         for i, vtype in enumerate(self.type_history[track_id]):
-            # 权重随时间递增，最新的检测权重最高
             weight = i + 1
             type_weights[vtype] += weight
         
-        # 返回权重最高的类型
         return max(type_weights, key=type_weights.get)
     
     def cleanup(self, active_track_ids):
-        """清理消失车辆的历史数据"""
         for track_id in list(self.type_history.keys()):
             if track_id not in active_track_ids:
                 del self.type_history[track_id]
 
 
 class ByteTracker:
-    """ByteTrack风格多目标跟踪器 - 增强版"""
     def __init__(self, max_disappeared=8, max_distance=80, fps=24):
         self.next_id = 0
         self.tracks = {}
@@ -182,7 +169,6 @@ class ByteTracker:
         return max(0, smoothed_speed)
     
     def detect_anomalies(self, track_id, track, prev_y):
-        """检测异常行为"""
         warnings = []
         
         curr_cx, curr_cy = track['box'][0] + track['box'][2]//2, track['box'][1] + track['box'][3]//2
@@ -312,7 +298,6 @@ class ByteTracker:
 
 
 class TrafficStatistics:
-    """交通数据统计与报表生成"""
     def __init__(self):
         self.data = {
             'total_count': 0,
@@ -398,107 +383,7 @@ class TrafficStatistics:
             self.csv_file.close()
 
 
-class TrafficLightController:
-    """智能信号灯控制器"""
-    def __init__(self):
-        self.current_green_time = 30
-        self.min_green_time = 15
-        self.max_green_time = 60
-        self.green_time = 30
-        self.is_green = True
-        self.phase = 0
-        self.phase_names = ['北向南', '东向西', '南向北', '西向东']
-    
-    def update(self, vehicle_count, avg_speed):
-        if vehicle_count > 15:
-            self.green_time = min(self.green_time + 2, self.max_green_time)
-        elif vehicle_count < 5:
-            self.green_time = max(self.green_time - 2, self.min_green_time)
-        else:
-            adjustment = (vehicle_count - 10) * 0.5
-            self.green_time = max(self.min_green_time, min(self.max_green_time, self.green_time + adjustment))
-        
-        return {
-            'green_time': int(self.green_time),
-            'phase': self.phase_names[self.phase],
-            'is_green': self.is_green,
-            'vehicle_count': vehicle_count
-        }
-    
-    def switch_phase(self):
-        self.phase = (self.phase + 1) % 4
-        self.is_green = True
-
-
-class NightEnhancer:
-    """夜间/恶劣天气图像增强"""
-    def __init__(self):
-        self.contrast_factor = 1.5
-        self.brightness_factor = 1.3
-    
-    def enhance(self, frame):
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        h, s, v = cv2.split(hsv)
-        
-        v_enhanced = cv2.convertScaleAbs(v, alpha=self.contrast_factor, beta=30)
-        
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-        v_clahe = clahe.apply(v_enhanced)
-        
-        hsv_enhanced = cv2.merge([h, s, v_clahe])
-        enhanced = cv2.cvtColor(hsv_enhanced, cv2.COLOR_HSV2BGR)
-        
-        gray = cv2.cvtColor(enhanced, cv2.COLOR_BGR2GRAY)
-        avg_brightness = np.mean(gray)
-        
-        if avg_brightness < 80:
-            enhanced = cv2.convertScaleAbs(enhanced, alpha=1.2, beta=20)
-        elif avg_brightness > 180:
-            enhanced = cv2.convertScaleAbs(enhanced, alpha=0.9, beta=-10)
-        
-        kernel = np.ones((3, 3), np.float32) / 9
-        enhanced = cv2.filter2D(enhanced, -1, kernel)
-        
-        return enhanced
-
-
-def blend_layers(img1, img2, alpha=0.5, beta=0.5, gamma=0):
-    """安全的图层融合工具函数，自动处理尺寸和通道不匹配
-    
-    Args:
-        img1: 第一层图像
-        img2: 第二层图像
-        alpha: 第一层权重
-        beta: 第二层权重
-        gamma: 偏移量
-    
-    Returns:
-        融合后的图像
-    """
-    if img1 is None or img2 is None:
-        return img1 if img1 is not None else img2
-    
-    # 统一尺寸
-    h1, w1 = img1.shape[:2]
-    h2, w2 = img2.shape[:2]
-    if h1 != h2 or w1 != w2:
-        img2 = cv2.resize(img2, (w1, h1))
-    
-    # 统一通道数
-    if len(img1.shape) == 2:
-        img1 = cv2.cvtColor(img1, cv2.COLOR_GRAY2BGR)
-    if len(img2.shape) == 2:
-        img2 = cv2.cvtColor(img2, cv2.COLOR_GRAY2BGR)
-    
-    # 确保数据类型一致
-    if img1.dtype != img2.dtype:
-        img2 = img2.astype(img1.dtype)
-    
-    return cv2.addWeighted(img1, alpha, img2, beta, gamma)
-
-
 class HeatmapGenerator:
-    """交通热力图生成"""
     def __init__(self):
         self.density_map = None
         self.speed_map = None
@@ -541,46 +426,29 @@ class HeatmapGenerator:
         density_colored = cv2.applyColorMap(density_normalized.astype(np.uint8), cv2.COLORMAP_JET)
         
         return density_colored, self.density_map, self.speed_map
-    
-    def generate_time_heatmap(self):
-        if np.sum(self.count_map) < 1:
-            return None
-        avg_speed_map = np.divide(self.speed_map, self.count_map, where=self.count_map > 0)
-        avg_speed_normalized = cv2.normalize(avg_speed_map, None, 0, 255, cv2.NORM_MINMAX)
-        return cv2.applyColorMap(avg_speed_normalized.astype(np.uint8), cv2.COLORMAP_JET)
 
 
-class CollisionWarning:
-    """车距监测与追尾预警"""
-    def __init__(self):
-        self.min_safe_distance = 50
-        self.warning_distance = 80
-        self.alert_distance = 120
+def blend_layers(img1, img2, alpha=0.5, beta=0.5, gamma=0):
+    if img1 is None or img2 is None:
+        return img1 if img1 is not None else img2
     
-    def check_distance(self, track1, track2):
-        box1, box2 = track1['box'], track2['box']
-        
-        x1, y1 = box1[0] + box1[2]//2, box1[1] + box1[3]//2
-        x2, y2 = box2[0] + box2[2]//2, box2[1] + box2[3]//2
-        
-        distance = np.sqrt((x1 - x2)**2 + (y1 - y2)**2)
-        
-        speed1, speed2 = track1.get('speed', 0), track2.get('speed', 0)
-        relative_speed = abs(speed1 - speed2)
-        
-        safe_distance = self.min_safe_distance + relative_speed * 0.5
-        
-        if distance < safe_distance * 0.5:
-            return 'RED', distance
-        elif distance < safe_distance:
-            return 'YELLOW', distance
-        elif distance < self.alert_distance:
-            return 'WARNING', distance
-        return 'SAFE', distance
+    h1, w1 = img1.shape[:2]
+    h2, w2 = img2.shape[:2]
+    if h1 != h2 or w1 != w2:
+        img2 = cv2.resize(img2, (w1, h1))
+    
+    if len(img1.shape) == 2:
+        img1 = cv2.cvtColor(img1, cv2.COLOR_GRAY2BGR)
+    if len(img2.shape) == 2:
+        img2 = cv2.cvtColor(img2, cv2.COLOR_GRAY2BGR)
+    
+    if img1.dtype != img2.dtype:
+        img2 = img2.astype(img1.dtype)
+    
+    return cv2.addWeighted(img1, alpha, img2, beta, gamma)
 
 
 def cv2_puttext_cn(img, text, org, font_size=20, color=(255, 255, 255)):
-    """绘制中文字符 - 增强版，支持更多字体路径"""
     font_paths = [
         "C:/Windows/Fonts/simhei.ttf",
         "C:/Windows/Fonts/msyh.ttc",
@@ -590,11 +458,9 @@ def cv2_puttext_cn(img, text, org, font_size=20, color=(255, 255, 255)):
         "C:/Windows/Fonts/STKaiti.ttf",
         "C:/Windows/Fonts/KaiTi.ttf",
         "C:/Windows/Fonts/SimSun.ttf",
-        "C:/Windows/Fonts/YaHei.Consolas.1.12.ttf",
         "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
         "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
         "/Library/Fonts/SimHei.ttf",
         "/Library/Fonts/Microsoft YaHei.ttf"
     ]
@@ -609,7 +475,6 @@ def cv2_puttext_cn(img, text, org, font_size=20, color=(255, 255, 255)):
                 continue
     
     if font is None:
-        print("警告：未找到中文字体，使用默认字体")
         font = ImageFont.load_default()
     
     try:
@@ -618,12 +483,10 @@ def cv2_puttext_cn(img, text, org, font_size=20, color=(255, 255, 255)):
         draw.text(org, text, font=font, fill=color)
         return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
     except Exception as e:
-        print(f"中文绘制错误: {e}")
         return img
 
 
 class TrafficMonitor:
-    """智能交通视觉监测系统 - 完整版"""
     def __init__(self, speed_limit=60, fps=24, model_path=None):
         self.fps = fps
         self.speed_limit = speed_limit
@@ -647,15 +510,12 @@ class TrafficMonitor:
         self.tracker = ByteTracker(max_disappeared=8, max_distance=80, fps=fps)
         self.classifier = VehicleClassifier()
         self.statistics = TrafficStatistics()
-        self.traffic_light = TrafficLightController()
-        self.night_enhancer = NightEnhancer()
         self.heatmap_gen = HeatmapGenerator()
-        self.collision_checker = CollisionWarning()
         
         self.frame_count = 0
         self.counted_ids = set()
         self.track_valid_frames = {}
-        self.track_prev_pos = {}  # 记录车辆上一帧位置
+        self.track_prev_pos = {}
         
         self.show_heatmap = False
         self.show_lane = True
@@ -674,17 +534,12 @@ class TrafficMonitor:
                 history=800, varThreshold=40, detectShadows=False
             )
     
-    def set_speed_limit(self, limit):
-        self.speed_limit = limit
-    
     def detect_with_yolo(self, frame):
-        """YOLO检测 - 严格只保留三类车型"""
         if not self.model:
             return [], [], []
         
         height, width = frame.shape[:2]
         
-        # 使用CLAHE做光照均衡
         lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
         l, a, b = cv2.split(lab)
         clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
@@ -692,25 +547,22 @@ class TrafficMonitor:
         lab = cv2.merge((l, a, b))
         frame_enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
         
-        # YOLO检测，只启用car/bus/truck三类
         results = self.model(
             frame_enhanced, 
             verbose=False, 
-            conf=0.35,  # 置信度阈值
-            iou=0.45,   # IOU阈值
-            classes=[2, 5, 7]  # 严格只保留三类：2=car,5=bus,7=truck
+            conf=0.35,
+            iou=0.45,
+            classes=[2, 5, 7]
         )
         
         boxes, scores, classes = [], [], []
         
-        # ROI区域定义（只保留车道内）
         roi_left, roi_right = int(width * 0.10), int(width * 0.90)
         roi_top, roi_bottom = int(height * 0.20), height
         
         for result in results:
             for box in result.boxes:
                 cls = int(box.cls.item())
-                # 严格检查类别
                 if cls not in [2, 5, 7]:
                     continue
                 
@@ -718,31 +570,23 @@ class TrafficMonitor:
                 x, y, w, h = int(x1), int(y1), int(x2 - x1), int(y2 - y1)
                 conf = float(box.conf.item())
                 
-                # ROI过滤：只保留车道内
                 cx, cy = x + w//2, y + h//2
                 if not (roi_left < cx < roi_right and roi_top < cy < roi_bottom):
                     continue
                 
-                # 尺寸过滤：过滤太小的远景框
                 if w < 30 or h < 30:
                     continue
                 
-                # 公交车特殊过滤：防止把站牌识别成公交车
-                if cls == 5:  # bus
-                    # 公交车置信度要求更高
+                if cls == 5:
                     if conf < 0.5:
                         continue
-                    # 公交车宽高比通常大于1.2（长条形），站牌通常更高或接近正方形
                     aspect_ratio = w / h if h > 0 else 0
-                    # 公交车宽度通常明显大于高度，站牌可能更高或接近正方形
                     if aspect_ratio < 1.0:
                         continue
-                    # 公交车面积通常较大
                     if w * h < 8000:
                         continue
                 
-                # 货车特殊过滤
-                if cls == 7:  # truck
+                if cls == 7:
                     if conf < 0.45:
                         continue
                 
@@ -786,13 +630,11 @@ class TrafficMonitor:
         else:
             boxes, scores, classes = self.detect_with_bgsub(frame)
         
-        # 车型分类
         vehicle_types = []
         for box, cls in zip(boxes, classes):
             vtype, conf = self.classifier.classify(box, cls)
             vehicle_types.append(vtype)
         
-        # 高/低置信度划分
         high_conf_idx = [i for i, s in enumerate(scores) if s >= 0.4]
         low_conf_idx = [i for i, s in enumerate(scores) if s < 0.4]
         
@@ -804,7 +646,6 @@ class TrafficMonitor:
         low_conf_scores = [scores[i] for i in low_conf_idx]
         low_conf_types = [vehicle_types[i] for i in low_conf_idx]
         
-        # ByteTrack跟踪
         tracks = self.tracker.update(
             high_conf_boxes, high_conf_scores,
             low_conf_boxes, low_conf_scores,
@@ -812,7 +653,6 @@ class TrafficMonitor:
             high_conf_types, low_conf_types
         )
         
-        # 为跟踪结果设置车型（使用历史平滑）
         active_track_ids = set()
         for track_id, track in tracks.items():
             active_track_ids.add(track_id)
@@ -820,10 +660,8 @@ class TrafficMonitor:
             stable_type = self.classifier.get_stable_type(track_id, current_type)
             track['vehicle_type'] = stable_type
         
-        # 清理分类器历史
         self.classifier.cleanup(active_track_ids)
         
-        # 车流量统计 - 统计线移到更靠下的位置，让车辆有足够时间被稳定跟踪
         count_line_y = int(height * 0.75)
         for track_id, track in tracks.items():
             if track_id not in self.track_valid_frames:
@@ -833,12 +671,9 @@ class TrafficMonitor:
             box = track['box']
             cy = box[1] + box[3] // 2
             
-            # 只有真正穿过检测线才计数
-            # 降低稳定帧要求，确保公交车等大型车辆能被正确计数
             if self.track_valid_frames[track_id] >= 2 and track_id not in self.counted_ids:
                 if track_id in self.track_prev_pos:
                     prev_cy = self.track_prev_pos[track_id]
-                    # 允许一定的抖动范围，防止漏检
                     if prev_cy <= count_line_y + 5 and cy > count_line_y - 5:
                         self.counted_ids.add(track_id)
                         self.statistics.data['total_count'] += 1
@@ -848,27 +683,19 @@ class TrafficMonitor:
             
             self.track_prev_pos[track_id] = cy
         
-        # 清理消失车辆历史
         for track_id in list(self.track_prev_pos.keys()):
             if track_id not in active_track_ids:
                 del self.track_prev_pos[track_id]
         
         self.statistics.update(tracks, self.frame_count)
         
-        # 智能信号灯
-        vehicle_count = sum(1 for t in tracks.values() if t.get('speed', 0) > 5)
-        avg_speed = np.mean([t.get('speed', 0) for t in tracks.values() if t.get('speed', 0) > 5]) if vehicle_count > 0 else 0
-        light_info = self.traffic_light.update(vehicle_count, avg_speed)
-        
         result = frame.copy()
         
-        # 热力图叠加
         if self.show_heatmap:
             heatmap_colored, _, _ = self.heatmap_gen.update(tracks, width, height)
             if heatmap_colored is not None:
                 result = blend_layers(result, heatmap_colored, 0.7, 0.3, 0)
         
-        # 绘制检测框和标注
         for track_id, track in tracks.items():
             if self.track_valid_frames.get(track_id, 0) < 3:
                 continue
@@ -888,7 +715,6 @@ class TrafficMonitor:
             speed = track.get('speed', 0)
             is_over_speed = speed > self.speed_limit and speed > 25
             
-            # 超速红色框，正常车辆车型颜色框
             if is_over_speed:
                 cv2.rectangle(result, (x_exp, y_exp), (x_exp + w_exp, y_exp + h_exp), (0, 0, 255), 3)
             elif valid_frames >= 5:
@@ -896,34 +722,28 @@ class TrafficMonitor:
             else:
                 cv2.rectangle(result, (x_exp, y_exp), (x_exp + w_exp, y_exp + h_exp), color, 1)
             
-            # 绘制车型标签
             if valid_frames >= 5:
                 label = type_info['name']
-                # 标签背景
                 label_width = 75
                 cv2.rectangle(result, (x_exp, max(0, y_exp - 22)), (x_exp + label_width, max(0, y_exp)), (0, 0, 0), -1)
-                # 中文标签
                 result = cv2_puttext_cn(result, label, (x_exp + 3, max(5, y_exp - 7)), font_size=12, color=color)
                 
-                # 速度标签
                 if speed >= 20:
                     speed_label = "{}km/h".format(int(speed))
                     cv2.putText(result, speed_label, (x_exp + 3, y_exp + h_exp + 18),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 2)
             
-            # 警告信息
             warnings = track.get('warnings', [])
             if warnings and self.show_warnings:
                 for i, (warning_text, warning_color) in enumerate(warnings[:2]):
                     result = cv2_puttext_cn(result, warning_text, (x_exp, y_exp + h_exp + 36 + i*18), font_size=12, color=warning_color)
-        
 
         return result, {
             'count': self.statistics.data['total_count'],
             'frame': self.frame_count,
             'avg_speed': self.statistics.data['avg_speed'],
             'congestion': self.statistics.data['congestion_index'],
-            'light_info': light_info
+            'vehicle_counts': self.statistics.data['vehicle_counts']
         }
     
     def get_statistics(self):
@@ -935,7 +755,3 @@ class TrafficMonitor:
             'congestion_index': self.statistics.data['congestion_index'],
             'warnings': self.statistics.data['warnings'][-10:]
         }
-    
-    def export_data(self, csv_file='traffic_log.csv', summary_file='traffic_summary.json'):
-        self.statistics.export_summary(summary_file)
-        print(f"数据已导出: {summary_file}")

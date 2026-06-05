@@ -1,0 +1,359 @@
+{% extends "base.html" %}
+
+{% set active_page = 'upload' %}
+{% set title = '视频上传' %}
+{% set subtitle = '上传交通视频进行分析' %}
+
+{% block content %}
+<div class="row animate-fade-in">
+    <div class="col-lg-8">
+        <div class="card-dark">
+            <div class="card-header-dark card-header">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-upload mr-2"></i> 上传视频文件
+                </h5>
+            </div>
+            <div class="card-body">
+                <!-- 文件上传区域 -->
+                <div class="upload-area" id="upload-area">
+                    <div class="upload-icon">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                    </div>
+                    <p class="mt-3">拖拽文件到此处或点击选择文件</p>
+                    <p class="text-sm text-secondary mt-1">支持格式: MP4, AVI, MOV, MKV</p>
+                    <input type="file" id="file-input" class="file-input" accept="video/*" />
+                </div>
+
+                <!-- 已选择文件信息 -->
+                <div id="file-info" class="mt-4" style="display: none;">
+                    <div class="bg-gray-800 rounded-lg p-4 flex items-center justify-between">
+                        <div class="flex items-center">
+                            <i class="fas fa-file-video text-blue mr-3"></i>
+                            <div>
+                                <div id="selected-filename" class="font-medium"></div>
+                                <div id="selected-filesize" class="text-sm text-secondary"></div>
+                            </div>
+                        </div>
+                        <button class="btn btn-danger btn-sm" id="clear-file">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 上传按钮 -->
+                <button class="btn btn-primary-custom btn-lg mt-4 w-full" id="upload-btn" disabled>
+                    <i class="fas fa-cloud-upload-alt mr-2"></i> 开始上传
+                </button>
+
+                <!-- 进度条 -->
+                <div id="upload-progress" class="mt-4" style="display: none;">
+                    <div class="progress">
+                        <div class="progress-bar bg-primary" role="progressbar" style="width: 0%" id="progress-bar"></div>
+                    </div>
+                    <p id="progress-text" class="text-sm text-secondary mt-2"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 处理选项 -->
+        <div class="card-dark mt-4">
+            <div class="card-header-dark card-header">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-cog mr-2"></i> 处理选项
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-4">
+                    <label class="text-secondary mb-2 d-block">检测模式</label>
+                    <select class="form-select bg-dark border-gray-700 text-white">
+                        <option value="high">YOLOv8 高精度检测</option>
+                        <option value="fast">YOLOv8n 快速检测</option>
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="text-secondary mb-2 d-block">
+                        速度限制 (km/h): <span id="speed-value" class="text-primary">60</span>
+                    </label>
+                    <input type="range" class="form-range" min="20" max="120" value="60" id="speed-slider">
+                </div>
+                <div class="space-y-2">
+                    <label class="checkbox-label">
+                        <input type="checkbox" checked id="enable-heatmap">
+                        <span>启用热力图</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" checked id="enable-tracking">
+                        <span>启用目标跟踪</span>
+                    </label>
+                </div>
+
+                <!-- 开始处理按钮 -->
+                <button class="btn btn-primary-custom btn-lg mt-4 w-full" id="process-btn" disabled>
+                    <i class="fas fa-play-circle mr-2"></i> 开始处理视频
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧视频列表 -->
+    <div class="col-lg-4">
+        <div class="card-dark">
+            <div class="card-header-dark card-header d-flex justify-content-between">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-video mr-2"></i> 已上传视频
+                </h5>
+                <button class="btn btn-sm btn-outline-danger" id="refresh-videos">
+                    <i class="fas fa-refresh"></i>
+                </button>
+            </div>
+            <div class="card-body">
+                {% if videos %}
+                <div class="space-y-2 max-h-96 overflow-y-auto">
+                    {% for video in videos %}
+                    <div class="bg-gray-800 rounded-lg p-3 flex items-center justify-between">
+                        <div class="flex items-center cursor-pointer play-video" data-video="{{ video }}">
+                            <i class="fas fa-play-circle text-blue mr-2"></i>
+                            <span class="text-sm truncate">{{ video }}</span>
+                        </div>
+                        <button class="btn btn-xs btn-danger delete-upload" data-video="{{ video }}">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-8">
+                    <i class="fas fa-folder-open" style="font-size: 32px; color: #4b5563;"></i>
+                    <p class="text-sm text-secondary mt-2">暂无上传视频</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- 处理结果 -->
+        <div class="card-dark mt-4" id="result-card" style="display: none;">
+            <div class="card-header-dark card-header">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-check-circle mr-2"></i> 处理完成
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="text-center">
+                    <div class="text-2xl font-bold text-green mt-2" id="result-message"></div>
+                    <div class="mt-4">
+                        <a href="#" id="download-link" class="btn btn-primary-custom">
+                            <i class="fas fa-download mr-2"></i> 下载处理结果
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 视频预览模态框 -->
+<div class="modal fade" id="previewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark border-gray-700">
+            <div class="modal-header border-gray-700">
+                <h5 class="modal-title">视频预览</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <video controls class="w-full" id="preview-video">
+                    <source src="" type="video/mp4">
+                </video>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedFile = null;
+
+// 文件上传区域点击事件
+document.getElementById('upload-area').addEventListener('click', () => {
+    document.getElementById('file-input').click();
+});
+
+// 文件拖拽事件
+document.getElementById('upload-area').addEventListener('dragover', (e) => {
+    e.preventDefault();
+    document.getElementById('upload-area').classList.add('drag-over');
+});
+
+document.getElementById('upload-area').addEventListener('dragleave', () => {
+    document.getElementById('upload-area').classList.remove('drag-over');
+});
+
+document.getElementById('upload-area').addEventListener('drop', (e) => {
+    e.preventDefault();
+    document.getElementById('upload-area').classList.remove('drag-over');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        handleFile(files[0]);
+    }
+});
+
+// 文件选择事件
+document.getElementById('file-input').addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+        handleFile(e.target.files[0]);
+    }
+});
+
+// 处理选择的文件
+function handleFile(file) {
+    selectedFile = file;
+    document.getElementById('selected-filename').textContent = file.name;
+    document.getElementById('selected-filesize').textContent = formatSize(file.size);
+    document.getElementById('file-info').style.display = 'block';
+    document.getElementById('upload-btn').disabled = false;
+    document.getElementById('process-btn').disabled = true;
+    document.getElementById('result-card').style.display = 'none';
+}
+
+// 格式化文件大小
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+// 清除选择的文件
+document.getElementById('clear-file').addEventListener('click', () => {
+    selectedFile = null;
+    document.getElementById('file-input').value = '';
+    document.getElementById('file-info').style.display = 'none';
+    document.getElementById('upload-btn').disabled = true;
+});
+
+// 速度滑块
+document.getElementById('speed-slider').addEventListener('input', (e) => {
+    document.getElementById('speed-value').textContent = e.target.value;
+});
+
+// 上传按钮
+document.getElementById('upload-btn').addEventListener('click', () => {
+    if (!selectedFile) return;
+    
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    
+    document.getElementById('upload-btn').disabled = true;
+    document.getElementById('upload-progress').style.display = 'block';
+    document.getElementById('progress-bar').style.width = '0%';
+    document.getElementById('progress-text').textContent = '上传中...';
+    
+    fetch('/upload_video', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            document.getElementById('progress-bar').style.width = '100%';
+            document.getElementById('progress-text').textContent = data.message;
+            document.getElementById('process-btn').disabled = false;
+            document.getElementById('upload-btn').textContent = '上传成功';
+            setTimeout(() => {
+                location.reload();
+            }, 1000);
+        } else {
+            alert('上传失败: ' + data.message);
+            document.getElementById('upload-btn').disabled = false;
+        }
+    })
+    .catch(error => {
+        console.error('上传失败:', error);
+        alert('上传失败');
+        document.getElementById('upload-btn').disabled = false;
+    });
+});
+
+// 处理视频按钮
+document.getElementById('process-btn').addEventListener('click', () => {
+    const filename = selectedFile?.name || document.querySelector('.play-video')?.dataset.video;
+    if (!filename) return;
+    
+    document.getElementById('process-btn').disabled = true;
+    document.getElementById('upload-progress').style.display = 'block';
+    document.getElementById('progress-bar').style.width = '0%';
+    document.getElementById('progress-text').textContent = '处理中...';
+    
+    fetch('/process_video', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ filename: filename })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            document.getElementById('progress-bar').style.width = '100%';
+            document.getElementById('progress-text').textContent = data.message;
+            
+            // 显示结果卡片
+            document.getElementById('result-card').style.display = 'block';
+            document.getElementById('result-message').textContent = '处理完成!';
+            document.getElementById('download-link').href = '/download/' + data.output_filename;
+        } else {
+            alert('处理失败: ' + data.message);
+            document.getElementById('process-btn').disabled = false;
+        }
+    })
+    .catch(error => {
+        console.error('处理失败:', error);
+        alert('处理失败');
+        document.getElementById('process-btn').disabled = false;
+    });
+});
+
+// 播放视频
+document.querySelectorAll('.play-video').forEach(el => {
+    el.addEventListener('click', function() {
+        const videoName = this.dataset.video;
+        const modal = new bootstrap.Modal(document.getElementById('previewModal'));
+        const video = document.getElementById('preview-video');
+        video.src = `/uploads/${videoName}`;
+        video.load();
+        modal.show();
+    });
+});
+
+// 删除上传视频
+document.querySelectorAll('.delete-upload').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const videoName = this.dataset.video;
+        if (confirm(`确定删除 "${videoName}"？`)) {
+            fetch(`/delete_upload/${videoName}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    location.reload();
+                } else {
+                    alert('删除失败: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('删除失败:', error);
+                alert('删除失败');
+            });
+        }
+    });
+});
+
+// 刷新视频列表
+document.getElementById('refresh-videos').addEventListener('click', () => {
+    location.reload();
+});
+</script>
+{% endblock %}

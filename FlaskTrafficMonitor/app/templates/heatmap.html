@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+
+{% set active_page = 'heatmap' %}
+{% set title = '热力图' %}
+{% set subtitle = '交通热力分布可视化' %}
+
+{% block content %}
+<div class="row animate-fade-in">
+    <!-- 视频选择区域 -->
+    <div class="col-lg-12 mb-4">
+        <div class="card-dark">
+            <div class="card-header-dark card-header">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-video mr-2"></i> 视频选择
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-4">
+                        <select id="video-select" class="form-select bg-dark border-gray-700 text-white">
+                            <option value="">选择视频文件</option>
+                            {% for video in videos %}
+                            <option value="{{ video }}">{{ video }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <button class="btn btn-primary-custom mr-2" id="start-heatmap" disabled>
+                            <i class="fas fa-play mr-1"></i> 开始检测
+                        </button>
+                        <button class="btn btn-secondary" id="stop-heatmap" disabled>
+                            <i class="fas fa-stop mr-1"></i> 停止检测
+                        </button>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <span class="text-sm text-secondary">
+                            状态: <span id="heatmap-status" class="text-danger">未连接</span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        <div class="card-dark">
+            <div class="card-header-dark card-header d-flex justify-content-between">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-thermometer-three-quarters mr-2"></i> 交通热力图
+                </h5>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-primary-custom" id="refresh-heatmap">
+                        <i class="fas fa-refresh mr-1"></i> 刷新
+                    </button>
+                    <button class="btn btn-sm btn-secondary" id="clear-heatmap">
+                        <i class="fas fa-trash mr-1"></i> 清除
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="video-container" id="heatmap-container">
+                    <div class="placeholder-content">
+                        <i class="fas fa-thermometer-three-quarters" style="font-size: 64px; color: #4b5563;"></i>
+                        <p class="mt-4 text-secondary">请选择视频并点击开始检测</p>
+                    </div>
+                    <img id="heatmap-stream" src="" style="display: none; width: 100%;" />
+                </div>
+            </div>
+        </div>
+        
+        <!-- 热力图图例 -->
+        <div class="card-dark mt-4">
+            <div class="card-body">
+                <div class="d-flex items-center justify-center">
+                    <span class="text-sm text-secondary mr-3">低密度</span>
+                    <div class="flex gap-1">
+                        <div class="w-8 h-6 rounded" style="background: #00ff88;"></div>
+                        <div class="w-8 h-6 rounded" style="background: #8aff00;"></div>
+                        <div class="w-8 h-6 rounded" style="background: #ffea00;"></div>
+                        <div class="w-8 h-6 rounded" style="background: #ff8c00;"></div>
+                        <div class="w-8 h-6 rounded" style="background: #ff0000;"></div>
+                    </div>
+                    <span class="text-sm text-secondary ml-3">高密度</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4">
+        <!-- 热力统计 -->
+        <div class="card-dark">
+            <div class="card-header-dark card-header">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-chart-line mr-2"></i> 热力统计
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="space-y-4">
+                    <div class="bg-gray-800 rounded-lg p-3">
+                        <div class="text-sm text-secondary mb-1">热点区域数量</div>
+                        <div class="text-2xl font-bold text-orange" id="hotspots">0</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-3">
+                        <div class="text-sm text-secondary mb-1">最高热度值</div>
+                        <div class="text-2xl font-bold text-red" id="max-heat">0</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-3">
+                        <div class="text-sm text-secondary mb-1">平均热度</div>
+                        <div class="text-2xl font-bold text-yellow" id="avg-heat">0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 热力趋势 -->
+        <div class="card-dark mt-4">
+            <div class="card-header-dark card-header">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-trending-up mr-2"></i> 热度趋势
+                </h5>
+            </div>
+            <div class="card-body">
+                <canvas id="heat-trend-chart" height="150"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+let isProcessing = false;
+let statsInterval = null;
+let trendData = [];
+let chart = null;
+
+// 初始化图表
+function initChart() {
+    const ctx = document.getElementById('heat-trend-chart').getContext('2d');
+    chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: '热度值',
+                data: [],
+                borderColor: '#00d4ff',
+                backgroundColor: 'rgba(0, 212, 255, 0.1)',
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                x: {
+                    grid: { color: 'rgba(255,255,255,0.1)' },
+                    ticks: { color: '#6b7280' }
+                },
+                y: {
+                    grid: { color: 'rgba(255,255,255,0.1)' },
+                    ticks: { color: '#6b7280' },
+                    beginAtZero: true
+                }
+            },
+            plugins: {
+                legend: { display: false }
+            }
+        }
+    });
+}
+
+// 更新统计数据
+function updateStats() {
+    fetch('/get_stats')
+        .then(response => response.json())
+        .then(data => {
+            const currentVehicles = data.current_vehicles || 0;
+            const congestion = data.congestion_index || 0;
+            
+            document.getElementById('hotspots').textContent = currentVehicles;
+            document.getElementById('max-heat').textContent = congestion.toFixed(1);
+            document.getElementById('avg-heat').textContent = (congestion * 0.6).toFixed(1);
+            
+            // 更新趋势图
+            trendData.push(congestion);
+            if (trendData.length > 30) {
+                trendData.shift();
+            }
+            
+            if (chart) {
+                chart.data.labels = Array.from({length: trendData.length}, (_, i) => i + 1);
+                chart.data.datasets[0].data = trendData;
+                chart.update();
+            }
+        })
+        .catch(error => console.error('更新统计失败:', error));
+}
+
+// 视频选择变化
+document.getElementById('video-select').addEventListener('change', function() {
+    const hasVideo = this.value !== '';
+    document.getElementById('start-heatmap').disabled = !hasVideo;
+});
+
+// 开始检测
+document.getElementById('start-heatmap').addEventListener('click', function() {
+    const videoName = document.getElementById('video-select').value;
+    if (!videoName) return;
+    
+    isProcessing = true;
+    document.getElementById('start-heatmap').disabled = true;
+    document.getElementById('stop-heatmap').disabled = false;
+    document.getElementById('video-select').disabled = true;
+    document.getElementById('heatmap-status').textContent = '检测中';
+    document.getElementById('heatmap-status').className = 'text-green';
+    
+    // 显示热力图视频流
+    document.querySelector('.placeholder-content').style.display = 'none';
+    const heatmapStream = document.getElementById('heatmap-stream');
+    heatmapStream.style.display = 'block';
+    heatmapStream.src = `/stream_video?filename=${encodeURIComponent(videoName)}`;
+    
+    // 重置趋势数据
+    trendData = [];
+    
+    // 定期更新统计数据
+    statsInterval = setInterval(updateStats, 1000);
+});
+
+// 停止检测
+document.getElementById('stop-heatmap').addEventListener('click', function() {
+    isProcessing = false;
+    
+    // 停止视频流
+    const heatmapStream = document.getElementById('heatmap-stream');
+    heatmapStream.src = '';
+    heatmapStream.style.display = 'none';
+    document.querySelector('.placeholder-content').style.display = 'flex';
+    
+    // 停止统计更新
+    if (statsInterval) {
+        clearInterval(statsInterval);
+        statsInterval = null;
+    }
+    
+    document.getElementById('start-heatmap').disabled = false;
+    document.getElementById('stop-heatmap').disabled = true;
+    document.getElementById('video-select').disabled = false;
+    document.getElementById('heatmap-status').textContent = '已停止';
+    document.getElementById('heatmap-status').className = 'text-yellow';
+    
+    // 重置统计
+    document.getElementById('hotspots').textContent = '0';
+    document.getElementById('max-heat').textContent = '0';
+    document.getElementById('avg-heat').textContent = '0';
+});
+
+// 刷新按钮
+document.getElementById('refresh-heatmap').addEventListener('click', function() {
+    location.reload();
+});
+
+// 清除按钮
+document.getElementById('clear-heatmap').addEventListener('click', function() {
+    trendData = [];
+    if (chart) {
+        chart.data.labels = [];
+        chart.data.datasets[0].data = [];
+        chart.update();
+    }
+});
+
+// 页面加载时初始化
+document.addEventListener('DOMContentLoaded', function() {
+    initChart();
+});
+</script>
+{% endblock %}
