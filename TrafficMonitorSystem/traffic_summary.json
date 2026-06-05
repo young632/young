@@ -1,0 +1,14 @@
+{
+  "start_time": "2026-05-31T15:42:49.711450",
+  "end_time": "2026-05-31T15:43:24.434227",
+  "total_count": 2,
+  "vehicle_counts": {
+    "轿车": 2,
+    "货车": 0,
+    "公交": 0
+  },
+  "avg_speed": "26.6",
+  "max_speed": "31.7",
+  "min_speed": "21.4",
+  "congestion_index": "0.0%"
+}
