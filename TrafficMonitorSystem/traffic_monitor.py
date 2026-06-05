@@ -13,6 +13,11 @@ import json
 from datetime import datetime
 import os
 
+# 导入新模块
+from driving_behavior import BehaviorLSTM, DriverProfile
+from risk_assessment import VehicleInteractionAnalyzer
+from lane_analysis import LaneFlowAnalyzer
+
 try:
     from ultralytics import YOLO
     YOLO_AVAILABLE = True
@@ -48,7 +53,7 @@ class VehicleClassifier:
     
     def __init__(self):
         self.type_history = {}  # 记录每辆车的历史分类，防止跳变
-        self.history_length = 5
+        self.history_length = 10  # 增加历史帧数量，提升平滑效果
     
     def classify(self, box, yolo_class=None):
         """根据YOLO类别严格分类，只保留三类车型"""
@@ -73,11 +78,14 @@ class VehicleClassifier:
             return 0, 0.80  # 中型 -> 轿车
     
     def get_stable_type(self, track_id, current_type):
-        """获取稳定的车型，防止帧间跳变"""
+        """获取稳定的车型，防止帧间跳变 - 使用Counter投票法"""
+        from collections import Counter
+        
         if track_id not in self.type_history:
             self.type_history[track_id] = []
         
         self.type_history[track_id].append(current_type)
+        # 只保留最近N帧，避免内存爆炸
         if len(self.type_history[track_id]) > self.history_length:
             self.type_history[track_id].pop(0)
         
@@ -85,22 +93,71 @@ class VehicleClassifier:
         if len(self.type_history[track_id]) == 1:
             return current_type
         
-        # 加权投票机制：最近的检测权重更高
-        from collections import defaultdict
-        type_weights = defaultdict(int)
-        for i, vtype in enumerate(self.type_history[track_id]):
-            # 权重随时间递增，最新的检测权重最高
-            weight = i + 1
-            type_weights[vtype] += weight
-        
-        # 返回权重最高的类型
-        return max(type_weights, key=type_weights.get)
+        # Counter投票法：出现次数最多的类别作为最终结果
+        counter = Counter(self.type_history[track_id])
+        # most_common(1) 返回 [(类别, 次数)]
+        return counter.most_common(1)[0][0]
     
     def cleanup(self, active_track_ids):
         """清理消失车辆的历史数据"""
         for track_id in list(self.type_history.keys()):
             if track_id not in active_track_ids:
                 del self.type_history[track_id]
+
+
+class LightweightLPR:
+    """轻量车牌识别器 - 支持 HyperLPR 和简单模板匹配"""
+    def __init__(self):
+        self.lpr_available = False
+        self.model = None
+        self.track_plate = {}  # 绑定车辆ID和车牌
+        
+        # 尝试导入 HyperLPR
+        try:
+            from hyperlpr import HyperLPR_plate_recognition
+            self.model = HyperLPR_plate_recognition
+            self.lpr_available = True
+            print("成功加载 HyperLPR 车牌识别模型")
+        except ImportError:
+            print("警告：未安装 HyperLPR，车牌识别功能不可用")
+            print("安装方法: pip install hyperlpr")
+    
+    def recognize(self, car_crop):
+        """识别车辆区域的车牌"""
+        if not self.lpr_available or self.model is None:
+            return None
+        
+        try:
+            # 确保图像是 BGR 格式
+            if len(car_crop.shape) == 2:
+                car_crop = cv2.cvtColor(car_crop, cv2.COLOR_GRAY2BGR)
+            
+            # HyperLPR 识别（新API）
+            result = self.model(car_crop)
+            if result and len(result) > 0:
+                plate_info = result[0]
+                plate_number = plate_info[0]  # 车牌号码
+                confidence = plate_info[1]    # 置信度
+                if confidence > 0.7:  # 置信度阈值
+                    return plate_number
+            return None
+        except Exception as e:
+            print(f"LPR识别错误: {e}")
+            return None
+    
+    def get_plate(self, track_id):
+        """获取车辆的车牌"""
+        return self.track_plate.get(track_id, None)
+    
+    def set_plate(self, track_id, plate_number):
+        """绑定车辆ID和车牌"""
+        self.track_plate[track_id] = plate_number
+    
+    def cleanup(self, active_track_ids):
+        """清理消失车辆的车牌记录"""
+        for track_id in list(self.track_plate.keys()):
+            if track_id not in active_track_ids:
+                del self.track_plate[track_id]
 
 
 class ByteTracker:
@@ -430,36 +487,76 @@ class TrafficLightController:
         self.is_green = True
 
 
-class NightEnhancer:
-    """夜间/恶劣天气图像增强"""
+class WeatherEnhancer:
+    """恶劣天气图像增强器 - 集成 Retinex 去雾 + CLAHE 光照矫正"""
+    
     def __init__(self):
+        self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    
+    def clahe_enhance(self, img):
+        """CLAHE 限制对比度自适应直方图均衡 - 处理强光、逆光、夜间太暗"""
+        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        # CLAHE 增强亮度通道
+        l = self.clahe.apply(l)
+        lab = cv2.merge((l, a, b))
+        return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    
+    def retinex_dehaze(self, img):
+        """简化版 Retinex 去雾 - 处理雾天、雨天模糊"""
+        # 转换为灰度图计算光照
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # 高斯模糊获取光照分量
+        illumination = cv2.GaussianBlur(gray, (75, 75), 0)
+        illumination = illumination / 255.0
+        # Retinex 公式：R = log(I) - log(L)
+        result = img / illumination[..., np.newaxis]
+        result = np.clip(result, 0, 255).astype(np.uint8)
+        return result
+    
+    def white_balance(self, img):
+        """简单白平衡处理"""
+        result = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        avg_a = np.average(result[:, :, 1])
+        avg_b = np.average(result[:, :, 2])
+        result[:, :, 1] = result[:, :, 1] - ((avg_a - 128) * (result[:, :, 0] / 255.0) * 1.1)
+        result[:, :, 2] = result[:, :, 2] - ((avg_b - 128) * (result[:, :, 0] / 255.0) * 1.1)
+        return cv2.cvtColor(result, cv2.COLOR_LAB2BGR)
+    
+    def enhance(self, frame, enable_retinex=True, enable_clahe=True):
+        """组合增强：白平衡 → Retinex 去雾 → CLAHE 光照矫正"""
+        result = frame.copy()
+        
+        # 1. 白平衡
+        result = self.white_balance(result)
+        
+        # 2. Retinex 去雾（可选）
+        if enable_retinex:
+            result = self.retinex_dehaze(result)
+        
+        # 3. CLAHE 光照矫正（可选）
+        if enable_clahe:
+            result = self.clahe_enhance(result)
+        
+        return result
+    
+    def is_low_light(self, frame):
+        """判断是否为低光照场景"""
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        avg_brightness = np.mean(gray)
+        return avg_brightness < 80
+
+
+class NightEnhancer:
+    """夜间/恶劣天气图像增强 - 兼容旧接口"""
+    def __init__(self):
+        self.weather_enhancer = WeatherEnhancer()
         self.contrast_factor = 1.5
         self.brightness_factor = 1.3
     
     def enhance(self, frame):
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        h, s, v = cv2.split(hsv)
-        
-        v_enhanced = cv2.convertScaleAbs(v, alpha=self.contrast_factor, beta=30)
-        
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-        v_clahe = clahe.apply(v_enhanced)
-        
-        hsv_enhanced = cv2.merge([h, s, v_clahe])
-        enhanced = cv2.cvtColor(hsv_enhanced, cv2.COLOR_HSV2BGR)
-        
-        gray = cv2.cvtColor(enhanced, cv2.COLOR_BGR2GRAY)
-        avg_brightness = np.mean(gray)
-        
-        if avg_brightness < 80:
-            enhanced = cv2.convertScaleAbs(enhanced, alpha=1.2, beta=20)
-        elif avg_brightness > 180:
-            enhanced = cv2.convertScaleAbs(enhanced, alpha=0.9, beta=-10)
-        
-        kernel = np.ones((3, 3), np.float32) / 9
-        enhanced = cv2.filter2D(enhanced, -1, kernel)
-        
-        return enhanced
+        # 使用新的天气增强器
+        return self.weather_enhancer.enhance(frame)
 
 
 def blend_layers(img1, img2, alpha=0.5, beta=0.5, gamma=0):
@@ -652,6 +749,23 @@ class TrafficMonitor:
         self.heatmap_gen = HeatmapGenerator()
         self.collision_checker = CollisionWarning()
         
+        # 新增：轻量车牌识别器
+        self.lpr = LightweightLPR()
+        # 新增：恶劣天气图像增强器
+        self.weather_enhancer = WeatherEnhancer()
+        
+        # ========== 新增三大核心模块 ==========
+        # 1. 驾驶行为画像模块
+        self.behavior_detector = BehaviorLSTM()
+        self.driver_profile = DriverProfile()
+        
+        # 2. 会车/跟车风险评估模块
+        self.risk_analyzer = VehicleInteractionAnalyzer()
+        
+        # 3. 车道流量均衡分析模块
+        self.lane_analyzer = LaneFlowAnalyzer(num_lanes=4)
+        # =====================================
+        
         self.frame_count = 0
         self.counted_ids = set()
         self.track_valid_frames = {}
@@ -661,6 +775,16 @@ class TrafficMonitor:
         self.show_lane = True
         self.show_statistics = True
         self.show_warnings = True
+        
+        # 图像增强开关
+        self.enable_enhancement = True
+        self.enable_retinex = True
+        self.enable_clahe = True
+        
+        # 新增开关控制
+        self.show_trajectory = True  # 轨迹线显示
+        self.enable_risk_warning = True  # 风险预警开关
+        self.heatmap_opacity = 0.7  # 热力图层透明度
     
     def reset(self):
         self.frame_count = 0
@@ -781,10 +905,20 @@ class TrafficMonitor:
         height, width = frame.shape[:2]
         self.frame_count += 1
         
-        if self.use_yolo:
-            boxes, scores, classes = self.detect_with_yolo(frame)
+        # 恶劣天气图像增强预处理
+        if self.enable_enhancement:
+            frame_enhanced = self.weather_enhancer.enhance(
+                frame, 
+                enable_retinex=self.enable_retinex, 
+                enable_clahe=self.enable_clahe
+            )
         else:
-            boxes, scores, classes = self.detect_with_bgsub(frame)
+            frame_enhanced = frame.copy()
+        
+        if self.use_yolo:
+            boxes, scores, classes = self.detect_with_yolo(frame_enhanced)
+        else:
+            boxes, scores, classes = self.detect_with_bgsub(frame_enhanced)
         
         # 车型分类
         vehicle_types = []
@@ -823,8 +957,33 @@ class TrafficMonitor:
         # 清理分类器历史
         self.classifier.cleanup(active_track_ids)
         
+<<<<<<< HEAD
         # 车流量统计 - 统计线移到更靠下的位置，让车辆有足够时间被稳定跟踪
         count_line_y = int(height * 0.75)
+=======
+        # 车牌识别：只对稳定跟踪的车辆进行识别
+        for track_id, track in tracks.items():
+            # 只在车辆稳定跟踪后（5帧以上）且尚未识别到车牌时进行识别
+            if self.track_valid_frames.get(track_id, 0) >= 5 and not self.lpr.get_plate(track_id):
+                box = track['box']
+                x, y, w, h = box
+                # 裁剪车辆区域（稍微扩展一点）
+                x1, y1 = max(0, x - 5), max(0, y - 5)
+                x2, y2 = min(width, x + w + 5), min(height, y + h + 5)
+                car_crop = frame[y1:y2, x1:x2]
+                
+                # 只有车辆区域足够大时才进行识别
+                if car_crop.shape[0] > 50 and car_crop.shape[1] > 50:
+                    plate_number = self.lpr.recognize(car_crop)
+                    if plate_number:
+                        self.lpr.set_plate(track_id, plate_number)
+        
+        # 清理LPR历史
+        self.lpr.cleanup(active_track_ids)
+        
+        # 车流量统计
+        count_line_y = int(height * 0.58)
+>>>>>>> d869d291353cbd5a4f7a9769ee8a43202c70f7c9
         for track_id, track in tracks.items():
             if track_id not in self.track_valid_frames:
                 self.track_valid_frames[track_id] = 0
@@ -855,6 +1014,18 @@ class TrafficMonitor:
         
         self.statistics.update(tracks, self.frame_count)
         
+        # ========== 新增模块处理 ==========
+        # 1. 驾驶行为画像更新
+        for track_id, track in tracks.items():
+            self.driver_profile.update_profile(track_id, track, self.frame_count, self.fps)
+        
+        # 2. 会车/跟车风险评估
+        conflicts = self.risk_analyzer.analyze_frame(tracks, self.frame_count, self.fps, frame)
+        
+        # 3. 车道流量均衡分析
+        self.lane_analyzer.update(tracks, self.frame_count, self.fps)
+        # =================================
+        
         # 智能信号灯
         vehicle_count = sum(1 for t in tracks.values() if t.get('speed', 0) > 5)
         avg_speed = np.mean([t.get('speed', 0) for t in tracks.values() if t.get('speed', 0) > 5]) if vehicle_count > 0 else 0
@@ -866,7 +1037,30 @@ class TrafficMonitor:
         if self.show_heatmap:
             heatmap_colored, _, _ = self.heatmap_gen.update(tracks, width, height)
             if heatmap_colored is not None:
-                result = blend_layers(result, heatmap_colored, 0.7, 0.3, 0)
+                result = blend_layers(result, heatmap_colored, self.heatmap_opacity, 1 - self.heatmap_opacity, 0)
+        
+        # 绘制虚拟车道线（已禁用，用户要求移除）
+        # if self.show_lane:
+        #     for lane in self.lane_analyzer.lane_manager.lanes:
+        #         cv2.line(result, (lane['x_start'], 0), (lane['x_start'], height), (0, 255, 255), 1, cv2.LINE_AA)
+        
+        # 绘制车辆轨迹线
+        if self.show_trajectory:
+            for track_id, track in tracks.items():
+                trajectory = list(track.get('trajectory', []))
+                if len(trajectory) >= 2:
+                    for i in range(1, len(trajectory)):
+                        cv2.line(result, trajectory[i-1], trajectory[i], (200, 200, 200), 1, cv2.LINE_AA)
+        
+        # 绘制风险标记
+        if self.enable_risk_warning:
+            for conflict in conflicts:
+                if conflict['risk_level'] in ['medium', 'high']:
+                    pos = conflict['position']
+                    color = (0, 255, 255) if conflict['risk_level'] == 'medium' else (0, 0, 255)
+                    cv2.circle(result, pos, 20, color, 2)
+                    cv2.putText(result, f"TTC:{conflict['ttc']}s", (pos[0]+25, pos[1]),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
         
         # 绘制检测框和标注
         for track_id, track in tracks.items():
@@ -910,6 +1104,18 @@ class TrafficMonitor:
                     speed_label = "{}km/h".format(int(speed))
                     cv2.putText(result, speed_label, (x_exp + 3, y_exp + h_exp + 18),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 2)
+                
+                # 车牌显示
+                plate_number = self.lpr.get_plate(track_id)
+                if plate_number:
+                    # 车牌背景
+                    plate_bg_width = max(100, len(plate_number) * 18)
+                    cv2.rectangle(result, (x_exp, max(0, y_exp - 42)), 
+                                  (x_exp + plate_bg_width, max(0, y_exp - 22)), (0, 0, 0), -1)
+                    # 车牌文字
+                    result = cv2_puttext_cn(result, plate_number, 
+                                            (x_exp + 3, max(5, y_exp - 27)), 
+                                            font_size=12, color=(255, 255, 0))
             
             # 警告信息
             warnings = track.get('warnings', [])
@@ -936,6 +1142,66 @@ class TrafficMonitor:
             'warnings': self.statistics.data['warnings'][-10:]
         }
     
+    def get_driver_profiles(self):
+        """获取所有车辆的驾驶行为画像"""
+        return self.driver_profile.profiles
+    
+    def get_driver_profile(self, track_id):
+        """获取指定车辆的驾驶行为画像"""
+        return self.driver_profile.get_profile(track_id)
+    
+    def get_behavior_timeline(self, track_id):
+        """获取指定车辆的行为时间轴"""
+        return self.driver_profile.get_timeline(track_id)
+    
+    def get_risk_summary(self):
+        """获取风险评估汇总"""
+        return self.risk_analyzer.get_risk_summary()
+    
+    def get_high_risk_events(self):
+        """获取高风险事件列表"""
+        return self.risk_analyzer.ttc_evaluator.get_high_risk_events()
+    
+    def get_lane_statistics(self):
+        """获取车道流量统计"""
+        return self.lane_analyzer.get_lane_statistics()
+    
+    def get_lane_predictions(self):
+        """获取车道流量预测"""
+        return self.lane_analyzer.predict_future_flow()
+    
+    def get_optimization_suggestions(self):
+        """获取车道优化建议"""
+        return self.lane_analyzer.generate_optimization_suggestions()
+    
     def export_data(self, csv_file='traffic_log.csv', summary_file='traffic_summary.json'):
+        # 导出基础统计
         self.statistics.export_summary(summary_file)
-        print(f"数据已导出: {summary_file}")
+        
+        # 导出驾驶行为画像数据
+        behavior_data = {
+            'profiles': self.driver_profile.profiles,
+            'timelines': self.driver_profile.behavior_timeline
+        }
+        with open('driver_profiles.json', 'w', encoding='utf-8') as f:
+            json.dump(behavior_data, f, ensure_ascii=False, indent=2)
+        
+        # 导出风险事件数据
+        risk_data = {
+            'summary': self.risk_analyzer.get_risk_summary(),
+            'events': self.risk_analyzer.ttc_evaluator.conflict_history,
+            'heatmap': dict(self.risk_analyzer.ttc_evaluator.heatmap_data)
+        }
+        with open('risk_events.json', 'w', encoding='utf-8') as f:
+            json.dump(risk_data, f, ensure_ascii=False, indent=2)
+        
+        # 导出车道分析数据
+        lane_data = {
+            'statistics': self.lane_analyzer.get_lane_statistics(),
+            'predictions': self.lane_analyzer.predict_future_flow(),
+            'suggestions': self.lane_analyzer.generate_optimization_suggestions()
+        }
+        with open('lane_analysis.json', 'w', encoding='utf-8') as f:
+            json.dump(lane_data, f, ensure_ascii=False, indent=2)
+        
+        print(f"数据已导出: {summary_file}, driver_profiles.json, risk_events.json, lane_analysis.json")
