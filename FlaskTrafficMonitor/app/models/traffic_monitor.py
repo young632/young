@@ -385,9 +385,9 @@ class TrafficStatistics:
 
 class HeatmapGenerator:
     def __init__(self):
-        self.density_map = None
-        self.speed_map = None
-        self.count_map = None
+        self.density_map = np.zeros((480, 640), dtype=np.float32)
+        self.speed_map = np.zeros((480, 640), dtype=np.float32)
+        self.count_map = np.zeros((480, 640), dtype=np.float32)
         self.width = 640
         self.height = 480
         self.decay_factor = 0.95
@@ -411,14 +411,13 @@ class HeatmapGenerator:
         self.count_map *= self.decay_factor
         
         for track_id, track in tracks.items():
-            if track.get('speed', 0) < 5:
-                continue
+            # 降低速度阈值，确保热力图能够正确更新
+            speed = track.get('speed', 0)
             cx = int(track['box'][0] + track['box'][2] // 2)
             cy = int(track['box'][1] + track['box'][3] // 2)
             
             if 0 <= cx < self.width and 0 <= cy < self.height:
                 cv2.circle(self.density_map, (cx, cy), 30, 1.0, -1)
-                speed = track.get('speed', 0)
                 cv2.circle(self.speed_map, (cx, cy), 30, speed, -1)
                 cv2.circle(self.count_map, (cx, cy), 30, 1.0, -1)
         
@@ -507,7 +506,7 @@ class TrafficMonitor:
             history=800, varThreshold=40, detectShadows=False
         ) if not self.use_yolo else None
         
-        self.tracker = ByteTracker(max_disappeared=8, max_distance=80, fps=fps)
+        self.tracker = ByteTracker(max_disappeared=12, max_distance=100, fps=fps)
         self.classifier = VehicleClassifier()
         self.statistics = TrafficStatistics()
         self.heatmap_gen = HeatmapGenerator()
@@ -540,25 +539,29 @@ class TrafficMonitor:
         
         height, width = frame.shape[:2]
         
+        # 优化图像增强参数
         lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
         l, a, b = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
         l = clahe.apply(l)
         lab = cv2.merge((l, a, b))
         frame_enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
         
+        # 降低置信度阈值，检测更多车辆
         results = self.model(
             frame_enhanced, 
             verbose=False, 
-            conf=0.35,
-            iou=0.45,
-            classes=[2, 5, 7]
+            conf=0.25,
+            iou=0.5,
+            classes=[2, 5, 7],
+            max_det=50
         )
         
         boxes, scores, classes = [], [], []
         
-        roi_left, roi_right = int(width * 0.10), int(width * 0.90)
-        roi_top, roi_bottom = int(height * 0.20), height
+        # 扩大ROI区域
+        roi_left, roi_right = int(width * 0.05), int(width * 0.95)
+        roi_top, roi_bottom = int(height * 0.15), height
         
         for result in results:
             for box in result.boxes:
@@ -574,20 +577,23 @@ class TrafficMonitor:
                 if not (roi_left < cx < roi_right and roi_top < cy < roi_bottom):
                     continue
                 
-                if w < 20 or h < 20:
+                # 降低最小尺寸限制
+                if w < 15 or h < 15:
                     continue
                 
+                # 放宽公交车检测条件
                 if cls == 5:
-                    if conf < 0.5:
+                    if conf < 0.4:
                         continue
                     aspect_ratio = w / h if h > 0 else 0
-                    if aspect_ratio < 1.0:
+                    if aspect_ratio < 0.8:
                         continue
-                    if w * h < 8000:
+                    if w * h < 5000:
                         continue
                 
+                # 放宽货车检测条件
                 if cls == 7:
-                    if conf < 0.45:
+                    if conf < 0.35:
                         continue
                 
                 boxes.append((x, y, w, h))
@@ -696,8 +702,18 @@ class TrafficMonitor:
             if heatmap_colored is not None:
                 result = blend_layers(result, heatmap_colored, 0.7, 0.3, 0)
         
+        # 绘制计数线
+        count_line_y = int(height * 0.75)
+        cv2.line(result, (0, count_line_y), (width, count_line_y), (255, 255, 0), 2)
+        cv2.putText(result, "COUNT LINE", (10, count_line_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+        
+        # 绘制ROI区域
+        roi_left, roi_right = int(width * 0.05), int(width * 0.95)
+        roi_top, roi_bottom = int(height * 0.15), height
+        cv2.rectangle(result, (roi_left, roi_top), (roi_right, roi_bottom), (100, 100, 100), 1)
+        
         for track_id, track in tracks.items():
-            if self.track_valid_frames.get(track_id, 0) < 3:
+            if self.track_valid_frames.get(track_id, 0) < 2:
                 continue
             
             box = track['box']
@@ -715,6 +731,14 @@ class TrafficMonitor:
             speed = track.get('speed', 0)
             is_over_speed = speed > self.speed_limit and speed > 25
             
+            # 绘制轨迹
+            if len(track.get('trajectory', [])) >= 5:
+                trajectory = list(track['trajectory'])[-20:]
+                for i in range(1, len(trajectory)):
+                    pt1 = (int(trajectory[i-1][0]), int(trajectory[i-1][1]))
+                    pt2 = (int(trajectory[i][0]), int(trajectory[i][1]))
+                    cv2.line(result, pt1, pt2, (color[2]//2, color[1]//2, color[0]//2), 1)
+            
             if is_over_speed:
                 cv2.rectangle(result, (x_exp, y_exp), (x_exp + w_exp, y_exp + h_exp), (0, 0, 255), 3)
             elif valid_frames >= 5:
@@ -722,13 +746,17 @@ class TrafficMonitor:
             else:
                 cv2.rectangle(result, (x_exp, y_exp), (x_exp + w_exp, y_exp + h_exp), color, 1)
             
-            if valid_frames >= 5:
+            if valid_frames >= 3:
                 label = type_info['name']
-                label_width = 75
-                cv2.rectangle(result, (x_exp, max(0, y_exp - 22)), (x_exp + label_width, max(0, y_exp)), (0, 0, 0), -1)
-                result = cv2_puttext_cn(result, label, (x_exp + 3, max(5, y_exp - 7)), font_size=12, color=color)
+                # 直接绘制标签文字，不使用黑色背景
+                result = cv2_puttext_cn(result, label, (x_exp + 3, max(5, y_exp - 5)), font_size=12, color=color)
                 
-                if speed >= 20:
+                # 显示ID
+                id_label = "ID:{}".format(track_id)
+                cv2.putText(result, id_label, (x_exp + w_exp - 40, y_exp + h_exp + 18),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1)
+                
+                if speed >= 15:
                     speed_label = "{}km/h".format(int(speed))
                     cv2.putText(result, speed_label, (x_exp + 3, y_exp + h_exp + 18),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 2)
@@ -737,6 +765,19 @@ class TrafficMonitor:
             if warnings and self.show_warnings:
                 for i, (warning_text, warning_color) in enumerate(warnings[:2]):
                     result = cv2_puttext_cn(result, warning_text, (x_exp, y_exp + h_exp + 36 + i*18), font_size=12, color=warning_color)
+        
+        # 绘制统计信息面板
+        if self.show_statistics:
+            panel_height = 100
+            overlay = result.copy()
+            cv2.rectangle(overlay, (10, 10), (250, panel_height), (0, 0, 0), -1)
+            cv2.addWeighted(overlay, 0.7, result, 0.3, 0, result)
+            
+            stats_y = 30
+            result = cv2_puttext_cn(result, "总车流量: {}".format(self.statistics.data['total_count']), (20, stats_y), font_size=14, color=(0, 255, 0))
+            result = cv2_puttext_cn(result, "平均速度: {:.1f} km/h".format(self.statistics.data['avg_speed']), (20, stats_y + 22), font_size=14, color=(0, 255, 255))
+            result = cv2_puttext_cn(result, "拥堵指数: {:.1f}%".format(self.statistics.data['congestion_index']), (20, stats_y + 44), font_size=14, color=(255, 200, 0))
+            result = cv2_puttext_cn(result, "当前车辆: {}".format(len(tracks)), (20, stats_y + 66), font_size=14, color=(200, 200, 200))
 
         return result, {
             'count': self.statistics.data['total_count'],
@@ -754,4 +795,27 @@ class TrafficMonitor:
             'max_speed': self.statistics.data['max_speed'],
             'congestion_index': self.statistics.data['congestion_index'],
             'warnings': self.statistics.data['warnings'][-10:]
+        }
+    
+    def get_heatmap_stats(self):
+        """获取热力图统计数据"""
+        if hasattr(self, 'heatmap_gen') and self.heatmap_gen:
+            density_map = self.heatmap_gen.density_map
+            if density_map is not None and density_map.size > 0:
+                max_heat = float(np.max(density_map))
+                avg_heat = float(np.mean(density_map))
+                
+                # 计算热点区域数量（热度值超过阈值的区域）
+                threshold = max_heat * 0.3 if max_heat > 0 else 0.3
+                hotspot_count = int(np.sum(density_map > threshold) / 100)
+                
+                return {
+                    'hotspot_count': hotspot_count,
+                    'max_heat': round(max_heat, 2),
+                    'avg_heat': round(avg_heat, 4)
+                }
+        return {
+            'hotspot_count': 0,
+            'max_heat': 0.0,
+            'avg_heat': 0.0
         }

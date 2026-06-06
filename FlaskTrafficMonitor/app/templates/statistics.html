@@ -147,107 +147,196 @@
 
 {% block scripts %}
 <script>
-// 车流量柱状图
-const barCtx = document.getElementById('trafficBarChart').getContext('2d');
-const barChart = new Chart(barCtx, {
-    type: 'bar',
-    data: {
-        labels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'],
-        datasets: [{
-            label: '车流量',
-            data: [450, 230, 1250, 980, 1100, 780],
-            backgroundColor: 'rgba(0, 123, 255, 0.7)',
-            borderRadius: 6,
-            borderWidth: 0
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: { legend: { display: false } },
-        scales: {
-            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } },
-            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } }
-        }
-    }
-});
+let barChart, pieChart, speedChart, congestionChart;
+let statisticsData = null;
 
-// 车型饼图
-const pieCtx = document.getElementById('vehiclePieChart').getContext('2d');
-const pieChart = new Chart(pieCtx, {
-    type: 'pie',
-    data: {
-        labels: ['轿车', '货车', '公交'],
-        datasets: [{
-            data: [65, 22, 13],
-            backgroundColor: ['#00ff88', '#ff8c00', '#00d4ff'],
-            borderWidth: 0
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: {
-            legend: {
-                position: 'bottom',
-                labels: { color: '#9ca3af' }
+async function fetchStatistics() {
+    try {
+        const response = await fetch('/api/get_statistics');
+        statisticsData = await response.json();
+        updateCharts();
+        updateCards();
+    } catch (error) {
+        console.error('获取统计数据失败:', error);
+    }
+}
+
+function updateCards() {
+    if (!statisticsData) return;
+    
+    document.querySelector('.stat-card:nth-child(1) .stat-value').textContent = statisticsData.total_count;
+    document.querySelector('.stat-card:nth-child(2) .stat-value').textContent = statisticsData.avg_speed;
+    document.querySelector('.stat-card:nth-child(3) .stat-value').textContent = statisticsData.congestion + '%';
+    document.querySelector('.stat-card:nth-child(4) .stat-value').textContent = statisticsData.processed_frames;
+    
+    // 更新表格数据
+    const tbody = document.querySelector('table tbody');
+    tbody.innerHTML = `
+        <tr>
+            <td>轿车</td>
+            <td>${statisticsData.car_count}</td>
+            <td>${statisticsData.car_ratio}%</td>
+            <td>${statisticsData.car_avg_speed}</td>
+            <td><span class="badge bg-green">正常</span></td>
+        </tr>
+        <tr>
+            <td>货车</td>
+            <td>${statisticsData.truck_count}</td>
+            <td>${statisticsData.truck_ratio}%</td>
+            <td>${statisticsData.truck_avg_speed}</td>
+            <td><span class="badge bg-orange">正常</span></td>
+        </tr>
+        <tr>
+            <td>公交</td>
+            <td>${statisticsData.bus_count}</td>
+            <td>${statisticsData.bus_ratio}%</td>
+            <td>${statisticsData.bus_avg_speed}</td>
+            <td><span class="badge bg-cyan">正常</span></td>
+        </tr>
+    `;
+}
+
+function updateCharts() {
+    if (!statisticsData) return;
+    
+    // 更新车流量柱状图
+    if (barChart) {
+        barChart.data.datasets[0].data = statisticsData.hourly_trend;
+        barChart.update();
+    }
+    
+    // 更新车型饼图
+    if (pieChart) {
+        pieChart.data.datasets[0].data = [
+            statisticsData.car_count,
+            statisticsData.truck_count,
+            statisticsData.bus_count
+        ];
+        pieChart.update();
+    }
+    
+    // 更新车速分布直方图
+    if (speedChart) {
+        speedChart.data.datasets[0].data = statisticsData.speed_distribution;
+        speedChart.update();
+    }
+    
+    // 更新拥堵趋势图
+    if (congestionChart) {
+        congestionChart.data.datasets[0].data = statisticsData.congestion_history;
+        congestionChart.update();
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // 车流量柱状图
+    const barCtx = document.getElementById('trafficBarChart').getContext('2d');
+    barChart = new Chart(barCtx, {
+        type: 'bar',
+        data: {
+            labels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'],
+            datasets: [{
+                label: '车流量',
+                data: [0, 0, 0, 0, 0, 0],
+                backgroundColor: 'rgba(0, 123, 255, 0.7)',
+                borderRadius: 6,
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } },
+                y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } }
             }
         }
-    }
-});
+    });
 
-// 车速分布直方图
-const speedCtx = document.getElementById('speedHistogram').getContext('2d');
-const speedChart = new Chart(speedCtx, {
-    type: 'bar',
-    data: {
-        labels: ['0-20', '20-40', '40-60', '60-80', '80-100', '100+'],
-        datasets: [{
-            label: '车辆数',
-            data: [25, 85, 150, 120, 60, 20],
-            backgroundColor: [
-                '#ef4444', '#f59e0b', '#00ff88', '#00d4ff', '#8b5cf6', '#6b7280'
-            ],
-            borderRadius: 4
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: { legend: { display: false } },
-        scales: {
-            x: { grid: { display: false }, ticks: { color: '#9ca3af' } },
-            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } }
-        }
-    }
-});
-
-// 拥堵趋势图
-const congestionCtx = document.getElementById('congestionTrend').getContext('2d');
-const congestionChart = new Chart(congestionCtx, {
-    type: 'line',
-    data: {
-        labels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'],
-        datasets: [{
-            label: '拥堵指数',
-            data: [15, 10, 75, 45, 65, 35],
-            borderColor: '#ef4444',
-            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-            fill: true,
-            tension: 0.4,
-            pointRadius: 4,
-            pointBackgroundColor: '#ef4444'
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: { legend: { display: false } },
-        scales: {
-            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } },
-            y: { 
-                grid: { color: 'rgba(255,255,255,0.05)' }, 
-                ticks: { color: '#9ca3af' },
-                max: 100
+    // 车型饼图
+    const pieCtx = document.getElementById('vehiclePieChart').getContext('2d');
+    pieChart = new Chart(pieCtx, {
+        type: 'pie',
+        data: {
+            labels: ['轿车', '货车', '公交'],
+            datasets: [{
+                data: [0, 0, 0],
+                backgroundColor: ['#00ff88', '#ff8c00', '#00d4ff'],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { color: '#9ca3af' }
+                }
             }
         }
-    }
+    });
+
+    // 车速分布直方图
+    const speedCtx = document.getElementById('speedHistogram').getContext('2d');
+    speedChart = new Chart(speedCtx, {
+        type: 'bar',
+        data: {
+            labels: ['0-20', '20-40', '40-60', '60-80', '80-100', '100+'],
+            datasets: [{
+                label: '车辆数',
+                data: [0, 0, 0, 0, 0, 0],
+                backgroundColor: [
+                    '#ef4444', '#f59e0b', '#00ff88', '#00d4ff', '#8b5cf6', '#6b7280'
+                ],
+                borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { display: false }, ticks: { color: '#9ca3af' } },
+                y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } }
+            }
+        }
+    });
+
+    // 拥堵趋势图
+    const congestionCtx = document.getElementById('congestionTrend').getContext('2d');
+    congestionChart = new Chart(congestionCtx, {
+        type: 'line',
+        data: {
+            labels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'],
+            datasets: [{
+                label: '拥堵指数',
+                data: [0, 0, 0, 0, 0, 0],
+                borderColor: '#ef4444',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                fill: true,
+                tension: 0.4,
+                pointRadius: 4,
+                pointBackgroundColor: '#ef4444'
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } },
+                y: { 
+                    grid: { color: 'rgba(255,255,255,0.05)' }, 
+                    ticks: { color: '#9ca3af' },
+                    max: 100
+                }
+            }
+        }
+    });
+
+    // 首次获取数据
+    fetchStatistics();
+    
+    // 每3秒刷新一次数据
+    setInterval(fetchStatistics, 3000);
 });
 </script>
 {% endblock %}

@@ -349,7 +349,7 @@ function updateStats() {
             // 更新拥堵状态（使用新字段）
             document.getElementById('congestion-status').textContent = data.congestion_level || '畅通';
             
-            // 更新图表数据
+            // 更新车型分布图表
             const total = (data.car_count || 0) + (data.truck_count || 0) + (data.bus_count || 0);
             if (total > 0) {
                 vehicleChart.data.datasets[0].data = [
@@ -358,6 +358,18 @@ function updateStats() {
                     data.bus_count || 0
                 ];
                 vehicleChart.update();
+            }
+            
+            // 更新车流量趋势图表
+            if (data.traffic_trend && data.traffic_trend.length > 0) {
+                trendChart.data.datasets[0].data = data.traffic_trend;
+                trendChart.update();
+            }
+            
+            // 更新车速分布图表
+            if (data.speed_distribution && data.speed_distribution.length > 0) {
+                speedChart.data.datasets[0].data = data.speed_distribution;
+                speedChart.update();
             }
         })
         .catch(err => console.error('Error fetching stats:', err));

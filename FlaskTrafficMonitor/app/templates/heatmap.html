@@ -176,15 +176,14 @@ function updateStats() {
     fetch('/get_stats')
         .then(response => response.json())
         .then(data => {
-            const currentVehicles = data.current_vehicles || 0;
-            const congestion = data.congestion_index || 0;
+            // 使用真实的热力统计数据
+            document.getElementById('hotspots').textContent = data.hotspot_count || 0;
+            document.getElementById('max-heat').textContent = data.max_heat || 0;
+            document.getElementById('avg-heat').textContent = data.avg_heat || 0;
             
-            document.getElementById('hotspots').textContent = currentVehicles;
-            document.getElementById('max-heat').textContent = congestion.toFixed(1);
-            document.getElementById('avg-heat').textContent = (congestion * 0.6).toFixed(1);
-            
-            // 更新趋势图
-            trendData.push(congestion);
+            // 更新趋势图（使用最高热度值）
+            const heatValue = data.max_heat || 0;
+            trendData.push(heatValue);
             if (trendData.length > 30) {
                 trendData.shift();
             }
