@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, jsonify, send_from_direct
 import os
 import cv2
 import time
+import numpy as np
 from datetime import datetime
 
 main_bp = Blueprint('main', __name__)
@@ -55,7 +56,22 @@ def monitor_page():
 
 @main_bp.route('/statistics')
 def statistics_page():
-    return render_template('statistics.html')
+    global stats
+    return render_template('statistics.html',
+        total_count=stats.get('total_flow', 0),
+        avg_speed=stats.get('avg_speed', 0),
+        congestion=stats.get('congestion', 0),
+        processed_frames=stats.get('frame_count', 0),
+        car_count=stats.get('car', 0),
+        truck_count=stats.get('truck', 0),
+        bus_count=stats.get('bus', 0),
+        car_ratio=0,
+        truck_ratio=0,
+        bus_ratio=0,
+        car_avg_speed=stats.get('car_avg_speed', 0),
+        truck_avg_speed=stats.get('truck_avg_speed', 0),
+        bus_avg_speed=stats.get('bus_avg_speed', 0)
+    )
 
 @main_bp.route('/heatmap')
 def heatmap_page():
@@ -185,6 +201,11 @@ def video_feed():
                         stats['avg_speed'] = round(frame_stats.get('avg_speed', 0), 1)
                         stats['congestion'] = int(frame_stats.get('congestion', 0))
                         stats['frame_count'] = frame_count
+                        
+                        # 更新车型平均速度
+                        stats['car_avg_speed'] = round(frame_stats.get('car_avg_speed', 0), 1)
+                        stats['truck_avg_speed'] = round(frame_stats.get('truck_avg_speed', 0), 1)
+                        stats['bus_avg_speed'] = round(frame_stats.get('bus_avg_speed', 0), 1)
                         
                         # 更新速度记录（用于车速分布统计）
                         if stats['avg_speed'] > 0:
@@ -373,6 +394,44 @@ def stream_video():
                     stats['truck'] = vehicle_counts.get(1, 0)
                     stats['avg_speed'] = round(frame_stats.get('avg_speed', 0), 1)
                     stats['congestion'] = int(frame_stats.get('congestion', 0))
+                    
+                    # 更新帧数
+                    stats['frame_count'] = frame_count
+                    
+                    # 保存速度记录
+                    speed_records = stats.get('speed_records', [])
+                    current_speed = frame_stats.get('avg_speed', 0)
+                    if current_speed > 0:
+                        speed_records.append({'speed': current_speed, 'timestamp': time.time()})
+                        # 保留最近1000条记录
+                        if len(speed_records) > 1000:
+                            speed_records = speed_records[-1000:]
+                    stats['speed_records'] = speed_records
+                    
+                    # 保存各车型速度记录（用于车速分布统计）
+                    car_speed = frame_stats.get('car_avg_speed', 0)
+                    truck_speed = frame_stats.get('truck_avg_speed', 0)
+                    bus_speed = frame_stats.get('bus_avg_speed', 0)
+                    
+                    if car_speed > 0:
+                        speed_records.append({'speed': car_speed, 'timestamp': time.time(), 'type': 'car'})
+                    if truck_speed > 0:
+                        speed_records.append({'speed': truck_speed, 'timestamp': time.time(), 'type': 'truck'})
+                    if bus_speed > 0:
+                        speed_records.append({'speed': bus_speed, 'timestamp': time.time(), 'type': 'bus'})
+                    
+                    # 更新拥堵历史
+                    congestion_history = stats.get('congestion_history', [0, 0, 0, 0, 0, 0])
+                    congestion_history.append(stats['congestion'])
+                    if len(congestion_history) > 6:
+                        congestion_history = congestion_history[-6:]
+                    stats['congestion_history'] = congestion_history
+                    
+                    # 更新各车型平均速度
+                    stats['car_avg_speed'] = round(frame_stats.get('car_avg_speed', stats.get('avg_speed', 0)), 1)
+                    stats['truck_avg_speed'] = round(frame_stats.get('truck_avg_speed', stats.get('avg_speed', 0) * 0.7), 1)
+                    stats['bus_avg_speed'] = round(frame_stats.get('bus_avg_speed', stats.get('avg_speed', 0) * 0.6), 1)
+                    
                 except Exception as e:
                     print(f"检测失败: {e}")
                     processed_frame = frame
@@ -446,9 +505,11 @@ def get_statistics():
     """获取统计数据接口 - 用于统计页面的图表数据"""
     global stats
     
+    print(f"[DEBUG] stats: {stats}")
+    
     speed_records = stats.get('speed_records', [])
     
-    # 计算车速分布
+    # 计算车速分布（基于真实速度记录）
     speed_bins = [0, 20, 40, 60, 80, 100, float('inf')]
     speed_distribution = [0, 0, 0, 0, 0, 0]
     
@@ -459,15 +520,17 @@ def get_statistics():
                 speed_distribution[i] += 1
                 break
     
-    # 计算车流量趋势（按时间段）
-    total_count = stats.get('total_flow', 0)
+    # 获取车流量趋势（使用实时拥堵历史数据转换）
+    congestion_history = stats.get('congestion_history', [10, 10, 10, 10, 10, 10])
+    # 将拥堵指数转换为相对车流量（拥堵越高，车流量越大）
+    base_traffic = stats.get('total_flow', 100)
     hourly_trend = [
-        int(total_count * 0.08),   # 00:00
-        int(total_count * 0.04),   # 04:00
-        int(total_count * 0.25),   # 08:00
-        int(total_count * 0.18),   # 12:00
-        int(total_count * 0.22),   # 16:00
-        int(total_count * 0.15),   # 20:00
+        max(1, int(base_traffic * (congestion_history[0] / 100) * 0.8)),
+        max(1, int(base_traffic * (congestion_history[1] / 100) * 0.6)),
+        max(1, int(base_traffic * (congestion_history[2] / 100) * 1.2)),
+        max(1, int(base_traffic * (congestion_history[3] / 100) * 0.9)),
+        max(1, int(base_traffic * (congestion_history[4] / 100) * 1.1)),
+        max(1, int(base_traffic * (congestion_history[5] / 100) * 0.7)),
     ]
     
     # 车型分布
@@ -476,9 +539,13 @@ def get_statistics():
     bus_count = stats.get('bus', 0)
     vehicle_total = car_count + truck_count + bus_count
     
+    # 计算平均速度（基于真实记录）
+    valid_speeds = [r.get('speed', 0) for r in speed_records if r.get('speed', 0) > 0]
+    actual_avg_speed = sum(valid_speeds) / len(valid_speeds) if valid_speeds else stats.get('avg_speed', 0)
+    
     return jsonify({
         'total_count': stats.get('total_flow', 0),
-        'avg_speed': round(stats.get('avg_speed', 0), 1),
+        'avg_speed': round(actual_avg_speed, 1),
         'congestion': round(stats.get('congestion', 0), 1),
         'processed_frames': stats.get('frame_count', 0),
         'car_count': car_count,
@@ -487,12 +554,14 @@ def get_statistics():
         'car_ratio': round((car_count / vehicle_total) * 100, 1) if vehicle_total > 0 else 0,
         'truck_ratio': round((truck_count / vehicle_total) * 100, 1) if vehicle_total > 0 else 0,
         'bus_ratio': round((bus_count / vehicle_total) * 100, 1) if vehicle_total > 0 else 0,
-        'car_avg_speed': round(stats.get('car_avg_speed', stats.get('avg_speed', 0)), 1),
-        'truck_avg_speed': round(stats.get('truck_avg_speed', stats.get('avg_speed', 0) * 0.7), 1),
-        'bus_avg_speed': round(stats.get('bus_avg_speed', stats.get('avg_speed', 0) * 0.6), 1),
+        'car_avg_speed': round(stats.get('car_avg_speed', actual_avg_speed), 1),
+        'truck_avg_speed': round(stats.get('truck_avg_speed', actual_avg_speed * 0.7), 1),
+        'bus_avg_speed': round(stats.get('bus_avg_speed', actual_avg_speed * 0.6), 1),
         'speed_distribution': speed_distribution,
         'hourly_trend': hourly_trend,
-        'congestion_history': stats.get('congestion_history', [15, 10, 75, 45, 65, 35])
+        'congestion_history': congestion_history,
+        'speed_record_count': len(speed_records),
+        'last_update': datetime.now().isoformat()
     })
 
 @main_bp.route('/download/<filename>')

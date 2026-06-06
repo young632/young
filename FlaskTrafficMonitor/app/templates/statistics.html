@@ -6,28 +6,36 @@
 
 {% block content %}
 <div class="row animate-fade-in">
+    <!-- 刷新按钮 -->
+    <div class="col-lg-12 mb-4">
+        <button id="refreshBtn" class="btn btn-primary float-right">
+            <i class="fas fa-sync-alt"></i> 刷新数据
+        </button>
+        <span id="lastUpdate" class="text-gray float-right mr-3 mt-2"></span>
+    </div>
+    
     <!-- 统计卡片 -->
     <div class="col-lg-3 col-md-6 mb-4">
         <div class="card-dark stat-card p-4">
-            <div class="stat-value">{{ total_count }}</div>
+            <div class="stat-value" id="statTotalCount">{{ total_count }}</div>
             <div class="stat-label">总车流量</div>
         </div>
     </div>
     <div class="col-lg-3 col-md-6 mb-4">
         <div class="card-dark stat-card p-4">
-            <div class="stat-value">{{ avg_speed }}</div>
+            <div class="stat-value" id="statAvgSpeed">{{ avg_speed }}</div>
             <div class="stat-label">平均车速 (km/h)</div>
         </div>
     </div>
     <div class="col-lg-3 col-md-6 mb-4">
         <div class="card-dark stat-card p-4">
-            <div class="stat-value">{{ congestion }}</div>
+            <div class="stat-value" id="statCongestion">{{ congestion }}</div>
             <div class="stat-label">拥堵指数 (%)</div>
         </div>
     </div>
     <div class="col-lg-3 col-md-6 mb-4">
         <div class="card-dark stat-card p-4">
-            <div class="stat-value">{{ processed_frames }}</div>
+            <div class="stat-value" id="statProcessedFrames">{{ processed_frames }}</div>
             <div class="stat-label">处理帧数</div>
         </div>
     </div>
@@ -116,26 +124,26 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <tr>
+                        <tr id="rowCar">
                             <td>轿车</td>
-                            <td>{{ car_count }}</td>
-                            <td>{{ car_ratio }}%</td>
-                            <td>{{ car_avg_speed }}</td>
+                            <td id="carCount">{{ car_count }}</td>
+                            <td id="carRatio">{{ car_ratio }}%</td>
+                            <td id="carAvgSpeed">{{ car_avg_speed }}</td>
                             <td><span class="badge bg-green">正常</span></td>
                         </tr>
-                        <tr>
+                        <tr id="rowTruck">
                             <td>货车</td>
-                            <td>{{ truck_count }}</td>
-                            <td>{{ truck_ratio }}%</td>
-                            <td>{{ truck_avg_speed }}</td>
+                            <td id="truckCount">{{ truck_count }}</td>
+                            <td id="truckRatio">{{ truck_ratio }}%</td>
+                            <td id="truckAvgSpeed">{{ truck_avg_speed }}</td>
                             <td><span class="badge bg-orange">正常</span></td>
                         </tr>
-                        <tr>
+                        <tr id="rowBus">
                             <td>公交</td>
-                            <td>{{ bus_count }}</td>
-                            <td>{{ bus_ratio }}%</td>
-                            <td>{{ bus_avg_speed }}</td>
-                            <td><span class="badge bg-cyan">正常</span></td>
+                            <td id="busCount">{{ bus_count }}</td>
+                            <td id="busRatio">{{ bus_ratio }}%</td>
+                            <td id="busAvgSpeed">{{ bus_avg_speed }}</td>
+                            <td><span class="badge bg-blue">正常</span></td>
                         </tr>
                     </tbody>
                 </table>
@@ -149,11 +157,17 @@
 <script>
 let barChart, pieChart, speedChart, congestionChart;
 let statisticsData = null;
+let refreshInterval = null;
 
 async function fetchStatistics() {
     try {
         const response = await fetch('/api/get_statistics');
+        if (!response.ok) {
+            console.error('HTTP错误:', response.status);
+            return;
+        }
         statisticsData = await response.json();
+        console.log('统计数据:', statisticsData);
         updateCharts();
         updateCards();
     } catch (error) {
@@ -164,66 +178,62 @@ async function fetchStatistics() {
 function updateCards() {
     if (!statisticsData) return;
     
-    document.querySelector('.stat-card:nth-child(1) .stat-value').textContent = statisticsData.total_count;
-    document.querySelector('.stat-card:nth-child(2) .stat-value').textContent = statisticsData.avg_speed;
-    document.querySelector('.stat-card:nth-child(3) .stat-value').textContent = statisticsData.congestion + '%';
-    document.querySelector('.stat-card:nth-child(4) .stat-value').textContent = statisticsData.processed_frames;
+    // 更新统计卡片
+    document.getElementById('statTotalCount').textContent = statisticsData.total_count;
+    document.getElementById('statAvgSpeed').textContent = statisticsData.avg_speed;
+    document.getElementById('statCongestion').textContent = statisticsData.congestion;
+    document.getElementById('statProcessedFrames').textContent = statisticsData.processed_frames;
     
     // 更新表格数据
-    const tbody = document.querySelector('table tbody');
-    tbody.innerHTML = `
-        <tr>
-            <td>轿车</td>
-            <td>${statisticsData.car_count}</td>
-            <td>${statisticsData.car_ratio}%</td>
-            <td>${statisticsData.car_avg_speed}</td>
-            <td><span class="badge bg-green">正常</span></td>
-        </tr>
-        <tr>
-            <td>货车</td>
-            <td>${statisticsData.truck_count}</td>
-            <td>${statisticsData.truck_ratio}%</td>
-            <td>${statisticsData.truck_avg_speed}</td>
-            <td><span class="badge bg-orange">正常</span></td>
-        </tr>
-        <tr>
-            <td>公交</td>
-            <td>${statisticsData.bus_count}</td>
-            <td>${statisticsData.bus_ratio}%</td>
-            <td>${statisticsData.bus_avg_speed}</td>
-            <td><span class="badge bg-cyan">正常</span></td>
-        </tr>
-    `;
+    document.getElementById('carCount').textContent = statisticsData.car_count;
+    document.getElementById('carRatio').textContent = statisticsData.car_ratio + '%';
+    document.getElementById('carAvgSpeed').textContent = statisticsData.car_avg_speed;
+    
+    document.getElementById('truckCount').textContent = statisticsData.truck_count;
+    document.getElementById('truckRatio').textContent = statisticsData.truck_ratio + '%';
+    document.getElementById('truckAvgSpeed').textContent = statisticsData.truck_avg_speed;
+    
+    document.getElementById('busCount').textContent = statisticsData.bus_count;
+    document.getElementById('busRatio').textContent = statisticsData.bus_ratio + '%';
+    document.getElementById('busAvgSpeed').textContent = statisticsData.bus_avg_speed;
+    
+    // 更新最后更新时间
+    if (statisticsData.last_update) {
+        const date = new Date(statisticsData.last_update);
+        document.getElementById('lastUpdate').textContent = '最后更新: ' + date.toLocaleString('zh-CN');
+    }
 }
 
 function updateCharts() {
     if (!statisticsData) return;
     
+    console.log('更新图表数据:', statisticsData);
+    
     // 更新车流量柱状图
     if (barChart) {
-        barChart.data.datasets[0].data = statisticsData.hourly_trend;
+        barChart.data.datasets[0].data = statisticsData.hourly_trend || [0,0,0,0,0,0];
         barChart.update();
     }
     
     // 更新车型饼图
     if (pieChart) {
         pieChart.data.datasets[0].data = [
-            statisticsData.car_count,
-            statisticsData.truck_count,
-            statisticsData.bus_count
+            statisticsData.car_count || 0,
+            statisticsData.truck_count || 0,
+            statisticsData.bus_count || 0
         ];
         pieChart.update();
     }
     
     // 更新车速分布直方图
     if (speedChart) {
-        speedChart.data.datasets[0].data = statisticsData.speed_distribution;
+        speedChart.data.datasets[0].data = statisticsData.speed_distribution || [0,0,0,0,0,0];
         speedChart.update();
     }
     
     // 更新拥堵趋势图
     if (congestionChart) {
-        congestionChart.data.datasets[0].data = statisticsData.congestion_history;
+        congestionChart.data.datasets[0].data = statisticsData.congestion_history || [0,0,0,0,0,0];
         congestionChart.update();
     }
 }
@@ -335,8 +345,13 @@ document.addEventListener('DOMContentLoaded', function() {
     // 首次获取数据
     fetchStatistics();
     
-    // 每3秒刷新一次数据
-    setInterval(fetchStatistics, 3000);
+    // 添加手动刷新按钮事件
+    document.getElementById('refreshBtn').addEventListener('click', function() {
+        fetchStatistics();
+    });
+    
+    // 每3秒自动刷新一次数据
+    refreshInterval = setInterval(fetchStatistics, 3000);
 });
 </script>
 {% endblock %}
