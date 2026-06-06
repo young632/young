@@ -1,5 +1,7 @@
 import os
 
+basedir = os.path.abspath(os.path.dirname(__file__))
+
 class Config:
     SECRET_KEY = 'traffic_monitor_secret_key_2024'
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'uploads')
@@ -7,6 +9,10 @@ class Config:
     LOG_FOLDER = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'logs')
     ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv'}
     MAX_CONTENT_LENGTH = 500 * 1024 * 1024  # 500MB
+    
+    # 数据库配置
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///' + os.path.join(os.path.dirname(os.path.dirname(__file__)), 'traffic_data.db')
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # YOLO模型路径
     YOLO_MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'yolov8n.pt')

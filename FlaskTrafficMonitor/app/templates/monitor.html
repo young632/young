@@ -34,8 +34,11 @@
                         <button class="btn btn-primary-custom mr-2" id="start-stream" disabled>
                             <i class="fas fa-play mr-1"></i> 开始播放
                         </button>
-                        <button class="btn btn-secondary" id="stop-stream" disabled>
+                        <button class="btn btn-secondary mr-2" id="stop-stream" disabled>
                             <i class="fas fa-stop mr-1"></i> 停止播放
+                        </button>
+                        <button class="btn btn-success" id="save-record" disabled>
+                            <i class="fas fa-save mr-1"></i> 保存记录
                         </button>
                     </div>
                     <div class="col-md-3 text-end">
@@ -137,6 +140,61 @@
         </div>
     </div>
 </div>
+
+<!-- 保存记录模态框 -->
+<div class="modal fade" id="saveRecordModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-white">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-save text-success"></i> 保存监测记录
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">视频名称</label>
+                    <input type="text" class="form-control bg-secondary text-white" id="record-video-name" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">总车流量</label>
+                    <input type="text" class="form-control bg-secondary text-white" id="record-total-count" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">平均速度 (km/h)</label>
+                    <input type="text" class="form-control bg-secondary text-white" id="record-avg-speed" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">车型统计</label>
+                    <div class="row">
+                        <div class="col-4">
+                            <input type="text" class="form-control bg-secondary text-white text-center" id="record-car-count" readonly>
+                            <small class="text-secondary d-block text-center">轿车</small>
+                        </div>
+                        <div class="col-4">
+                            <input type="text" class="form-control bg-secondary text-white text-center" id="record-truck-count" readonly>
+                            <small class="text-secondary d-block text-center">货车</small>
+                        </div>
+                        <div class="col-4">
+                            <input type="text" class="form-control bg-secondary text-white text-center" id="record-bus-count" readonly>
+                            <small class="text-secondary d-block text-center">公交</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">备注信息</label>
+                    <textarea class="form-control bg-secondary text-white" id="record-notes" rows="3" placeholder="请输入备注信息（可选）"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-success" id="confirmSaveBtn">
+                    <i class="fas fa-save"></i> 确认保存
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -167,13 +225,102 @@ function stop() {
     document.getElementById("videoArea").src = "";
     document.getElementById("videoArea").style.display = 'none';
     document.querySelector('.placeholder-content').style.display = 'flex';
-    
+
     document.getElementById('start-stream').disabled = false;
     document.getElementById('stop-stream').disabled = true;
+    document.getElementById('save-record').disabled = false;  // 启用保存按钮
     document.getElementById('video-select').disabled = false;
     document.getElementById('stream-mode').disabled = false;
     document.getElementById('stream-status').textContent = '已停止';
     document.getElementById('stream-status').className = 'text-yellow';
+
+    // 自动弹出保存对话框
+    showSaveModal();
+}
+
+// 显示保存对话框
+function showSaveModal() {
+    var videoName = document.getElementById("video-select").value;
+
+    // 填充当前数据到模态框
+    document.getElementById('record-video-name').value = videoName;
+    document.getElementById('record-total-count').value = document.getElementById('total-count').textContent;
+    document.getElementById('record-avg-speed').value = document.getElementById('avg-speed').textContent;
+    document.getElementById('record-car-count').value = document.getElementById('car-count').textContent;
+    document.getElementById('record-truck-count').value = document.getElementById('truck-count').textContent;
+    document.getElementById('record-bus-count').value = document.getElementById('bus-count').textContent;
+    document.getElementById('record-notes').value = '';
+
+    // 显示模态框
+    var modal = new bootstrap.Modal(document.getElementById('saveRecordModal'));
+    modal.show();
+}
+
+// 保存记录
+async function saveRecord() {
+    var videoName = document.getElementById("video-select").value;
+
+    if (!videoName) {
+        alert('请先选择视频文件');
+        return;
+    }
+
+    showSaveModal();
+}
+
+// 确认保存
+async function confirmSave() {
+    var videoName = document.getElementById('record-video-name').value;
+    var notes = document.getElementById('record-notes').value;
+
+    try {
+        const response = await fetch('/api/save_record', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                video_name: videoName,
+                notes: notes
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.status === 'success') {
+            // 关闭模态框
+            bootstrap.Modal.getInstance(document.getElementById('saveRecordModal')).hide();
+
+            // 显示成功消息
+            showSuccessMessage('记录保存成功！记录ID: ' + data.record_id);
+
+            // 禁用保存按钮
+            document.getElementById('save-record').disabled = true;
+        } else {
+            alert('保存失败: ' + data.message);
+        }
+    } catch (error) {
+        console.error('保存失败:', error);
+        alert('保存失败: ' + error.message);
+    }
+}
+
+// 显示成功消息
+function showSuccessMessage(message) {
+    // 创建成功提示
+    var alertDiv = document.createElement('div');
+    alertDiv.className = 'alert alert-success alert-dismissible fade show';
+    alertDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    alertDiv.innerHTML = `
+        <i class="fas fa-check-circle"></i> ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.body.appendChild(alertDiv);
+
+    // 3秒后自动关闭
+    setTimeout(function() {
+        alertDiv.remove();
+    }, 3000);
 }
 
 // 定时刷新数据
@@ -205,7 +352,9 @@ setInterval(function() {
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('start-stream').addEventListener('click', play);
     document.getElementById('stop-stream').addEventListener('click', stop);
-    
+    document.getElementById('save-record').addEventListener('click', saveRecord);
+    document.getElementById('confirmSaveBtn').addEventListener('click', confirmSave);
+
     document.getElementById('video-select').addEventListener('change', function() {
         document.getElementById('start-stream').disabled = this.value === '';
     });

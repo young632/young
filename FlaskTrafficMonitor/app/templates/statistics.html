@@ -6,8 +6,11 @@
 
 {% block content %}
 <div class="row animate-fade-in">
-    <!-- 刷新按钮 -->
+    <!-- 操作按钮 -->
     <div class="col-lg-12 mb-4">
+        <button id="saveBtn" class="btn btn-success mr-2">
+            <i class="fas fa-save"></i> 保存数据
+        </button>
         <button id="refreshBtn" class="btn btn-primary float-right">
             <i class="fas fa-sync-alt"></i> 刷新数据
         </button>
@@ -151,6 +154,65 @@
         </div>
     </div>
 </div>
+
+<!-- 保存记录模态框 -->
+<div class="modal fade" id="saveStatisticsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-white">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-save text-success"></i> 保存数据报表
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">视频名称</label>
+                    <input type="text" class="form-control bg-secondary text-white" id="save-video-name" placeholder="请输入视频名称">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">总车流量</label>
+                    <input type="text" class="form-control bg-secondary text-white" id="save-total-count" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">平均速度 (km/h)</label>
+                    <input type="text" class="form-control bg-secondary text-white" id="save-avg-speed" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">拥堵指数 (%)</label>
+                    <input type="text" class="form-control bg-secondary text-white" id="save-congestion" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">车型统计</label>
+                    <div class="row">
+                        <div class="col-4">
+                            <input type="text" class="form-control bg-secondary text-white text-center" id="save-car-count" readonly>
+                            <small class="text-secondary d-block text-center">轿车</small>
+                        </div>
+                        <div class="col-4">
+                            <input type="text" class="form-control bg-secondary text-white text-center" id="save-truck-count" readonly>
+                            <small class="text-secondary d-block text-center">货车</small>
+                        </div>
+                        <div class="col-4">
+                            <input type="text" class="form-control bg-secondary text-white text-center" id="save-bus-count" readonly>
+                            <small class="text-secondary d-block text-center">公交</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">备注信息</label>
+                    <textarea class="form-control bg-secondary text-white" id="save-notes" rows="3" placeholder="请输入备注信息（可选）"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-success" id="confirmSaveStatsBtn">
+                    <i class="fas fa-save"></i> 确认保存
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -173,6 +235,85 @@ async function fetchStatistics() {
     } catch (error) {
         console.error('获取统计数据失败:', error);
     }
+}
+
+// 显示保存对话框
+function showSaveModal() {
+    if (!statisticsData) {
+        alert('请先获取统计数据');
+        return;
+    }
+
+    // 填充当前数据到模态框
+    document.getElementById('save-video-name').value = '';
+    document.getElementById('save-total-count').value = statisticsData.total_count;
+    document.getElementById('save-avg-speed').value = statisticsData.avg_speed;
+    document.getElementById('save-congestion').value = statisticsData.congestion;
+    document.getElementById('save-car-count').value = statisticsData.car_count;
+    document.getElementById('save-truck-count').value = statisticsData.truck_count;
+    document.getElementById('save-bus-count').value = statisticsData.bus_count;
+    document.getElementById('save-notes').value = '';
+
+    // 显示模态框
+    var modal = new bootstrap.Modal(document.getElementById('saveStatisticsModal'));
+    modal.show();
+}
+
+// 确认保存
+async function confirmSaveStats() {
+    var videoName = document.getElementById('save-video-name').value.trim();
+    var notes = document.getElementById('save-notes').value.trim();
+
+    if (!videoName) {
+        alert('请输入视频名称');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/save_record', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                video_name: videoName,
+                notes: notes
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.status === 'success') {
+            // 关闭模态框
+            bootstrap.Modal.getInstance(document.getElementById('saveStatisticsModal')).hide();
+
+            // 显示成功消息
+            showSuccessMessage('数据报表保存成功！记录ID: ' + data.record_id);
+        } else {
+            alert('保存失败: ' + data.message);
+        }
+    } catch (error) {
+        console.error('保存失败:', error);
+        alert('保存失败: ' + error.message);
+    }
+}
+
+// 显示成功消息
+function showSuccessMessage(message) {
+    // 创建成功提示
+    var alertDiv = document.createElement('div');
+    alertDiv.className = 'alert alert-success alert-dismissible fade show';
+    alertDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    alertDiv.innerHTML = `
+        <i class="fas fa-check-circle"></i> ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.body.appendChild(alertDiv);
+
+    // 3秒后自动关闭
+    setTimeout(function() {
+        alertDiv.remove();
+    }, 3000);
 }
 
 function updateCards() {
@@ -349,6 +490,12 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('refreshBtn').addEventListener('click', function() {
         fetchStatistics();
     });
+    
+    // 添加保存按钮事件
+    document.getElementById('saveBtn').addEventListener('click', showSaveModal);
+    
+    // 添加确认保存按钮事件
+    document.getElementById('confirmSaveStatsBtn').addEventListener('click', confirmSaveStats);
     
     // 每3秒自动刷新一次数据
     refreshInterval = setInterval(fetchStatistics, 3000);

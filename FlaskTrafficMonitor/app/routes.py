@@ -4,6 +4,8 @@ import cv2
 import time
 import numpy as np
 from datetime import datetime
+import json
+from app.models.database import db, TrafficRecord
 
 main_bp = Blueprint('main', __name__)
 
@@ -652,7 +654,166 @@ def process_video():
             'message': f'处理完成，共 {frame_count} 帧',
             'output_file': filename.replace('.mp4', '_detected.mp4')
         })
-        
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
+# ==================== 数据库相关路由 ====================
+
+@main_bp.route('/records')
+def records_page():
+    """历史记录页面"""
+    return render_template('records.html')
+
+
+@main_bp.route('/api/save_record', methods=['POST'])
+def save_record():
+    """保存监测记录到数据库"""
+    global stats
+
+    try:
+        data = request.get_json()
+        video_name = data.get('video_name', '未知视频')
+
+        # 创建新的记录
+        record = TrafficRecord(
+            video_name=video_name,
+            start_time=datetime.now(),
+            end_time=datetime.now(),
+            total_count=stats.get('total_flow', 0),
+            avg_speed=stats.get('avg_speed', 0),
+            max_speed=max([r.get('speed', 0) for r in stats.get('speed_records', [])]) if stats.get('speed_records') else 0,
+            min_speed=min([r.get('speed', 0) for r in stats.get('speed_records', [])]) if stats.get('speed_records') else 0,
+            congestion_index=stats.get('congestion', 0),
+            processed_frames=stats.get('frame_count', 0),
+            car_count=stats.get('car', 0),
+            truck_count=stats.get('truck', 0),
+            bus_count=stats.get('bus', 0),
+            car_avg_speed=stats.get('car_avg_speed', 0),
+            truck_avg_speed=stats.get('truck_avg_speed', 0),
+            bus_avg_speed=stats.get('bus_avg_speed', 0),
+            speed_distribution=json.dumps(stats.get('speed_records', [])),
+            congestion_history=json.dumps(stats.get('congestion_history', [])),
+            notes=data.get('notes', '')
+        )
+
+        db.session.add(record)
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': '记录保存成功',
+            'record_id': record.id
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
+@main_bp.route('/api/get_records')
+def get_records():
+    """获取所有监测记录"""
+    try:
+        # 按创建时间倒序排列
+        records = TrafficRecord.query.order_by(TrafficRecord.created_at.desc()).all()
+
+        return jsonify({
+            'status': 'success',
+            'records': [record.to_dict() for record in records],
+            'total': len(records)
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
+@main_bp.route('/api/get_record/<int:record_id>')
+def get_record(record_id):
+    """获取单条监测记录详情"""
+    try:
+        record = TrafficRecord.query.get(record_id)
+
+        if not record:
+            return jsonify({'status': 'error', 'message': '记录不存在'})
+
+        return jsonify({
+            'status': 'success',
+            'record': record.to_dict()
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
+@main_bp.route('/api/delete_record/<int:record_id>', methods=['DELETE'])
+def delete_record(record_id):
+    """删除监测记录"""
+    try:
+        record = TrafficRecord.query.get(record_id)
+
+        if not record:
+            return jsonify({'status': 'error', 'message': '记录不存在'})
+
+        db.session.delete(record)
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': '记录删除成功'
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
+@main_bp.route('/api/delete_records', methods=['POST'])
+def delete_records():
+    """批量删除监测记录"""
+    try:
+        data = request.get_json()
+        record_ids = data.get('record_ids', [])
+
+        if not record_ids:
+            return jsonify({'status': 'error', 'message': '未选择要删除的记录'})
+
+        # 删除指定ID的记录
+        deleted_count = TrafficRecord.query.filter(TrafficRecord.id.in_(record_ids)).delete(synchronize_session=False)
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': f'成功删除 {deleted_count} 条记录'
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)})
+
+
+@main_bp.route('/api/clear_all_records', methods=['DELETE'])
+def clear_all_records():
+    """清空所有监测记录"""
+    try:
+        deleted_count = TrafficRecord.query.delete()
+        db.session.commit()
+
+        return jsonify({
+            'status': 'success',
+            'message': f'成功清空 {deleted_count} 条记录'
+        })
+
     except Exception as e:
         import traceback
         traceback.print_exc()

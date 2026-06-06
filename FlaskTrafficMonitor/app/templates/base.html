@@ -198,6 +198,31 @@
             height: 250px;
         }
         
+        /* 安全标语横幅样式 */
+        .safety-banner {
+            background: linear-gradient(90deg, #dc2626 0%, #ea580c 100%);
+            padding: 10px 20px;
+            text-align: center;
+        }
+        
+        .safety-content {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        
+        .safety-content i {
+            margin: 0 10px;
+            font-size: 18px;
+        }
+        
+        .safety-content span {
+            letter-spacing: 1px;
+        }
+        
         @media (max-width: 768px) {
             .sidebar {
                 min-height: auto;
@@ -251,8 +276,8 @@
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link {{ 'active' if active_page == 'history' else '' }}" href="/history">
-                                <i class="fas fa-history"></i> 历史记录
+                            <a class="nav-link {{ 'active' if active_page == 'records' else '' }}" href="/records">
+                                <i class="fas fa-database"></i> 历史记录
                             </a>
                         </li>
                     </ul>
@@ -284,6 +309,15 @@
                         </div>
                     </div>
                 </header>
+                
+                <!-- 安全标语横幅 -->
+                <div class="safety-banner">
+                    <div class="safety-content">
+                        <i class="fas fa-shield-alt"></i>
+                        <span>道路千万条，安全第一条，行车不规范，亲人两行泪</span>
+                        <i class="fas fa-heart"></i>
+                    </div>
+                </div>
                 
                 <!-- 页面内容 -->
                 <div class="p-4">

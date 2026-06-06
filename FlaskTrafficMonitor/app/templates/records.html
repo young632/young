@@ -1,0 +1,376 @@
+{% extends "base.html" %}
+
+{% set active_page = 'records' %}
+{% set title = '历史记录' %}
+{% set subtitle = '监测数据管理' %}
+
+{% block content %}
+<div class="row animate-fade-in">
+    <!-- 操作按钮 -->
+    <div class="col-lg-12 mb-4">
+        <button id="refreshBtn" class="btn btn-primary">
+            <i class="fas fa-sync-alt"></i> 刷新数据
+        </button>
+        <button id="deleteSelectedBtn" class="btn btn-danger" style="display:none;">
+            <i class="fas fa-trash"></i> 删除选中
+        </button>
+        <button id="clearAllBtn" class="btn btn-warning float-right">
+            <i class="fas fa-trash-alt"></i> 清空所有记录
+        </button>
+    </div>
+
+    <!-- 记录列表 -->
+    <div class="col-lg-12 mb-4">
+        <div class="card-dark">
+            <div class="card-header-dark card-header">
+                <h5 class="card-title font-weight-bold">
+                    <i class="fas fa-database mr-2"></i> 监测记录列表
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-dark table-hover">
+                        <thead>
+                            <tr>
+                                <th width="50">
+                                    <input type="checkbox" id="selectAll" class="form-check-input">
+                                </th>
+                                <th>ID</th>
+                                <th>视频名称</th>
+                                <th>监测时间</th>
+                                <th>总车流量</th>
+                                <th>平均速度</th>
+                                <th>拥堵指数</th>
+                                <th>车型统计</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recordsTable">
+                            <tr>
+                                <td colspan="9" class="text-center text-secondary">
+                                    <i class="fas fa-spinner fa-spin"></i> 加载中...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 详情模态框 -->
+<div class="modal fade" id="detailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark text-white">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-info-circle"></i> 监测记录详情
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="detailContent">
+                <!-- 详情内容将动态加载 -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 确认删除模态框 -->
+<div class="modal fade" id="confirmModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-white">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-exclamation-triangle text-warning"></i> 确认删除
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p id="confirmMessage">确定要删除选中的记录吗？此操作不可恢复。</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteBtn">确认删除</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedRecords = [];
+let deleteCallback = null;
+
+// 加载记录列表
+async function loadRecords() {
+    try {
+        const response = await fetch('/api/get_records');
+        const data = await response.json();
+
+        if (data.status === 'success') {
+            displayRecords(data.records);
+        } else {
+            showError('加载记录失败: ' + data.message);
+        }
+    } catch (error) {
+        console.error('加载记录失败:', error);
+        showError('加载记录失败: ' + error.message);
+    }
+}
+
+// 显示记录列表
+function displayRecords(records) {
+    const tbody = document.getElementById('recordsTable');
+
+    if (records.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="9" class="text-center text-secondary">
+                    <i class="fas fa-inbox"></i> 暂无记录
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = records.map(record => `
+        <tr>
+            <td>
+                <input type="checkbox" class="record-checkbox form-check-input" data-id="${record.id}">
+            </td>
+            <td>${record.id}</td>
+            <td>${record.video_name}</td>
+            <td>${record.created_at}</td>
+            <td><span class="badge bg-primary">${record.total_count}</span></td>
+            <td><span class="badge bg-info">${record.avg_speed} km/h</span></td>
+            <td><span class="badge ${getCongestionBadge(record.congestion_index)}">${record.congestion_index}%</span></td>
+            <td>
+                <span class="badge bg-success">轿车: ${record.car_count}</span>
+                <span class="badge bg-warning">货车: ${record.truck_count}</span>
+                <span class="badge bg-info">公交: ${record.bus_count}</span>
+            </td>
+            <td>
+                <button class="btn btn-sm btn-info" onclick="viewRecord(${record.id})">
+                    <i class="fas fa-eye"></i>
+                </button>
+                <button class="btn btn-sm btn-danger" onclick="deleteSingleRecord(${record.id})">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        </tr>
+    `).join('');
+
+    // 绑定复选框事件
+    document.querySelectorAll('.record-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', updateSelectedRecords);
+    });
+}
+
+// 获取拥堵指数徽章样式
+function getCongestionBadge(congestion) {
+    if (congestion < 30) return 'bg-success';
+    if (congestion < 60) return 'bg-warning';
+    return 'bg-danger';
+}
+
+// 更新选中的记录
+function updateSelectedRecords() {
+    selectedRecords = [];
+    document.querySelectorAll('.record-checkbox:checked').forEach(checkbox => {
+        selectedRecords.push(parseInt(checkbox.dataset.id));
+    });
+
+    const deleteBtn = document.getElementById('deleteSelectedBtn');
+    deleteBtn.style.display = selectedRecords.length > 0 ? 'inline-block' : 'none';
+}
+
+// 全选/取消全选
+document.getElementById('selectAll').addEventListener('change', function() {
+    const checkboxes = document.querySelectorAll('.record-checkbox');
+    checkboxes.forEach(checkbox => checkbox.checked = this.checked);
+    updateSelectedRecords();
+});
+
+// 查看记录详情
+async function viewRecord(recordId) {
+    try {
+        const response = await fetch(`/api/get_record/${recordId}`);
+        const data = await response.json();
+
+        if (data.status === 'success') {
+            showRecordDetail(data.record);
+        } else {
+            showError('获取详情失败: ' + data.message);
+        }
+    } catch (error) {
+        console.error('获取详情失败:', error);
+        showError('获取详情失败: ' + error.message);
+    }
+}
+
+// 显示记录详情
+function showRecordDetail(record) {
+    const content = document.getElementById('detailContent');
+    content.innerHTML = `
+        <div class="row">
+            <div class="col-md-6">
+                <h6 class="text-primary">基本信息</h6>
+                <table class="table table-dark table-sm">
+                    <tr><td>视频名称</td><td>${record.video_name}</td></tr>
+                    <tr><td>监测时间</td><td>${record.created_at}</td></tr>
+                    <tr><td>处理帧数</td><td>${record.processed_frames}</td></tr>
+                </table>
+            </div>
+            <div class="col-md-6">
+                <h6 class="text-primary">总体统计</h6>
+                <table class="table table-dark table-sm">
+                    <tr><td>总车流量</td><td>${record.total_count}</td></tr>
+                    <tr><td>平均速度</td><td>${record.avg_speed} km/h</td></tr>
+                    <tr><td>拥堵指数</td><td>${record.congestion_index}%</td></tr>
+                </table>
+            </div>
+        </div>
+        <div class="row mt-3">
+            <div class="col-md-12">
+                <h6 class="text-primary">车型统计</h6>
+                <table class="table table-dark table-sm">
+                    <thead>
+                        <tr>
+                            <th>车型</th>
+                            <th>数量</th>
+                            <th>平均速度</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="badge bg-success">轿车</span></td>
+                            <td>${record.car_count}</td>
+                            <td>${record.car_avg_speed} km/h</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-warning">货车</span></td>
+                            <td>${record.truck_count}</td>
+                            <td>${record.truck_avg_speed} km/h</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge bg-info">公交</span></td>
+                            <td>${record.bus_count}</td>
+                            <td>${record.bus_avg_speed} km/h</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        ${record.notes ? `<div class="row mt-3"><div class="col-md-12"><h6 class="text-primary">备注</h6><p>${record.notes}</p></div></div>` : ''}
+    `;
+
+    const modal = new bootstrap.Modal(document.getElementById('detailModal'));
+    modal.show();
+}
+
+// 删除单条记录
+function deleteSingleRecord(recordId) {
+    showConfirm('确定要删除这条记录吗？此操作不可恢复。', async () => {
+        try {
+            const response = await fetch(`/api/delete_record/${recordId}`, { method: 'DELETE' });
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                showSuccess('删除成功');
+                loadRecords();
+            } else {
+                showError('删除失败: ' + data.message);
+            }
+        } catch (error) {
+            console.error('删除失败:', error);
+            showError('删除失败: ' + error.message);
+        }
+    });
+}
+
+// 删除选中记录
+document.getElementById('deleteSelectedBtn').addEventListener('click', function() {
+    if (selectedRecords.length === 0) return;
+
+    showConfirm(`确定要删除选中的 ${selectedRecords.length} 条记录吗？此操作不可恢复。`, async () => {
+        try {
+            const response = await fetch('/api/delete_records', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ record_ids: selectedRecords })
+            });
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                showSuccess(data.message);
+                selectedRecords = [];
+                loadRecords();
+            } else {
+                showError('删除失败: ' + data.message);
+            }
+        } catch (error) {
+            console.error('删除失败:', error);
+            showError('删除失败: ' + error.message);
+        }
+    });
+});
+
+// 清空所有记录
+document.getElementById('clearAllBtn').addEventListener('click', function() {
+    showConfirm('确定要清空所有记录吗？此操作不可恢复。', async () => {
+        try {
+            const response = await fetch('/api/clear_all_records', { method: 'DELETE' });
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                showSuccess(data.message);
+                loadRecords();
+            } else {
+                showError('清空失败: ' + data.message);
+            }
+        } catch (error) {
+            console.error('清空失败:', error);
+            showError('清空失败: ' + error.message);
+        }
+    });
+});
+
+// 刷新按钮
+document.getElementById('refreshBtn').addEventListener('click', loadRecords);
+
+// 显示确认对话框
+function showConfirm(message, callback) {
+    document.getElementById('confirmMessage').textContent = message;
+    deleteCallback = callback;
+    const modal = new bootstrap.Modal(document.getElementById('confirmModal'));
+    modal.show();
+}
+
+// 确认删除按钮
+document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+    bootstrap.Modal.getInstance(document.getElementById('confirmModal')).hide();
+    if (deleteCallback) {
+        deleteCallback();
+        deleteCallback = null;
+    }
+});
+
+// 显示成功消息
+function showSuccess(message) {
+    alert('成功: ' + message);
+}
+
+// 显示错误消息
+function showError(message) {
+    alert('错误: ' + message);
+}
+
+// 页面加载时获取记录
+document.addEventListener('DOMContentLoaded', loadRecords);
+</script>
+{% endblock %}
