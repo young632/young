@@ -148,12 +148,14 @@ class ByteTracker:
         current_y = recent_positions[-1][1]
         depth_ratio = current_y / img_height
         
-        if depth_ratio < 0.4:
-            pixel_to_kmh = 0.35
-        elif depth_ratio < 0.6:
-            pixel_to_kmh = 0.45
+        if depth_ratio < 0.3:
+            pixel_to_kmh = 0.50
+        elif depth_ratio < 0.5:
+            pixel_to_kmh = 0.65
+        elif depth_ratio < 0.7:
+            pixel_to_kmh = 0.80
         else:
-            pixel_to_kmh = 0.55
+            pixel_to_kmh = 0.95
         
         raw_speed = median_speed * pixel_to_kmh
         track['speed_history'].append(raw_speed)
@@ -353,8 +355,6 @@ class TrafficStatistics:
             
             slow_count = sum(1 for s in speeds if s < 20)
             self.data['congestion_index'] = (slow_count / len(speeds)) * 100
-        
-        self.data['total_count'] = sum(self.data['vehicle_counts'].values())
         
         for warning in self.data['warnings'][-20:]:
             if frame_id - warning['frame'] < 300:
@@ -574,7 +574,7 @@ class TrafficMonitor:
                 if not (roi_left < cx < roi_right and roi_top < cy < roi_bottom):
                     continue
                 
-                if w < 30 or h < 30:
+                if w < 20 or h < 20:
                     continue
                 
                 if cls == 5:
@@ -674,7 +674,7 @@ class TrafficMonitor:
             if self.track_valid_frames[track_id] >= 2 and track_id not in self.counted_ids:
                 if track_id in self.track_prev_pos:
                     prev_cy = self.track_prev_pos[track_id]
-                    if prev_cy <= count_line_y + 5 and cy > count_line_y - 5:
+                    if prev_cy < count_line_y and cy >= count_line_y:
                         self.counted_ids.add(track_id)
                         self.statistics.data['total_count'] += 1
                         vtype = track.get('vehicle_type', 0)
