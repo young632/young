@@ -103,7 +103,7 @@ def video_feed():
             print(f"错误: 文件不存在")
             return jsonify({'error': '文件不存在'}), 404
         
-        print(f"✓ 文件存在")
+        print(f"[OK] 文件存在")
         
         # 延迟导入避免启动时加载模型
         from app.models.traffic_monitor import TrafficMonitor
@@ -118,7 +118,7 @@ def video_feed():
         for mp in model_paths:
             if os.path.exists(mp):
                 model_path = mp
-                print(f"✓ 找到YOLO模型: {model_path}")
+                print(f"[OK] 找到YOLO模型: {model_path}")
                 break
         
         if model_path is None:
@@ -128,10 +128,10 @@ def video_feed():
         if monitor is None:
             print("创建新的监测器实例...")
             monitor = TrafficMonitor(model_path=model_path, fps=25)
-            print("✓ 监测器创建成功")
+            print("[OK] 监测器创建成功")
         else:
             monitor.reset()
-            print("✓ 监测器已重置")
+            print("[OK] 监测器已重置")
         
         # 打开视频文件
         cap = cv2.VideoCapture(video_path)
@@ -142,7 +142,7 @@ def video_feed():
         
         fps = cap.get(cv2.CAP_PROP_FPS) or 25
         frame_interval = 1.0 / fps
-        print(f"✓ 视频打开成功，帧率: {fps}")
+        print(f"[OK] 视频打开成功，帧率: {fps}")
         
         frame_count = 0
         
@@ -241,16 +241,97 @@ def upload_video():
 @main_bp.route('/stream_video')
 def stream_video():
     """首页大屏视频流接口 - 兼容首页使用的接口名"""
-    # 转换参数名：filename -> file
+    # 直接返回视频流，不使用重定向
+    global monitor, stats
+    
     filename = request.args.get('filename')
     mode = request.args.get('mode', 'detect')
     
     if not filename:
         return jsonify({'error': '缺少文件名'}), 400
     
-    # 重定向到现有的video_feed接口
-    from flask import redirect, url_for
-    return redirect(f'/video_feed?file={filename}&mode={mode}')
+    video_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'uploads', filename)
+    
+    if not os.path.exists(video_path):
+        return jsonify({'error': '文件不存在'}), 404
+    
+    from app.models.traffic_monitor import TrafficMonitor
+    
+    # 查找YOLO模型
+    model_path = None
+    model_paths = [
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), 'yolov8n.pt'),
+        r"D:\计算机实践\yolov8n.pt",
+        r"D:\计算机实践\yolov8n-seg.pt"
+    ]
+    for mp in model_paths:
+        if os.path.exists(mp):
+            model_path = mp
+            break
+    
+    # 创建监测器实例
+    if monitor is None:
+        monitor = TrafficMonitor(model_path=model_path, fps=25)
+    else:
+        monitor.reset()
+    
+    # 打开视频文件
+    cap = cv2.VideoCapture(video_path)
+    
+    if not cap.isOpened():
+        return jsonify({'error': '无法打开视频'}), 500
+    
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25
+    frame_interval = 1.0 / fps
+    frame_count = 0
+    
+    def generate():
+        global stats
+        nonlocal frame_count
+        
+        while cap.isOpened():
+            start_time = time.time()
+            ret, frame = cap.read()
+            frame_count += 1
+            
+            if not ret:
+                break
+            
+            processed_frame = frame
+            
+            if mode == 'detect':
+                try:
+                    processed_frame, frame_stats = monitor.process_frame(frame)
+                    
+                    # 更新统计数据
+                    stats['total_flow'] = frame_stats.get('count', 0)
+                    vehicle_counts = frame_stats.get('vehicle_counts', {})
+                    stats['car'] = vehicle_counts.get(0, 0)
+                    stats['bus'] = vehicle_counts.get(2, 0)
+                    stats['truck'] = vehicle_counts.get(1, 0)
+                    stats['avg_speed'] = round(frame_stats.get('avg_speed', 0), 1)
+                    stats['congestion'] = int(frame_stats.get('congestion', 0))
+                except Exception as e:
+                    print(f"检测失败: {e}")
+                    processed_frame = frame
+            
+            # 编码为JPEG
+            ret_jpg, jpeg = cv2.imencode('.jpg', processed_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            if not ret_jpg:
+                continue
+            
+            frame_bytes = jpeg.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            
+            # 帧率控制
+            elapsed = time.time() - start_time
+            if elapsed < frame_interval:
+                time.sleep(frame_interval - elapsed)
+        
+        cap.release()
+    
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @main_bp.route('/api/get_realtime_data')
 def get_realtime_data():
@@ -299,3 +380,74 @@ def clear_history():
             if f.endswith('.mp4'):
                 os.remove(os.path.join(output_folder, f))
     return jsonify({'status': 'success', 'message': '已清空'})
+
+@main_bp.route('/process_video', methods=['POST'])
+def process_video():
+    """处理视频并保存检测结果"""
+    data = request.get_json()
+    filename = data.get('filename')
+    
+    if not filename:
+        return jsonify({'status': 'error', 'message': '缺少文件名'})
+    
+    video_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'uploads', filename)
+    output_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'outputs', filename.replace('.mp4', '_detected.mp4'))
+    
+    if not os.path.exists(video_path):
+        return jsonify({'status': 'error', 'message': '文件不存在'})
+    
+    try:
+        import threading
+        from app.models.traffic_monitor import TrafficMonitor
+        
+        # 查找YOLO模型
+        model_path = None
+        model_paths = [
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), 'yolov8n.pt'),
+            r"D:\计算机实践\yolov8n.pt",
+            r"D:\计算机实践\yolov8n-seg.pt"
+        ]
+        for mp in model_paths:
+            if os.path.exists(mp):
+                model_path = mp
+                break
+        
+        monitor = TrafficMonitor(model_path=model_path, fps=25)
+        cap = cv2.VideoCapture(video_path)
+        
+        if not cap.isOpened():
+            return jsonify({'status': 'error', 'message': '无法打开视频'})
+        
+        fps = int(cap.get(cv2.CAP_PROP_FPS)) or 25
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        
+        frame_count = 0
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            processed_frame, _ = monitor.process_frame(frame)
+            out.write(processed_frame)
+            frame_count += 1
+            
+            if frame_count % 100 == 0:
+                print(f"已处理 {frame_count} 帧")
+        
+        cap.release()
+        out.release()
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'处理完成，共 {frame_count} 帧',
+            'output_file': filename.replace('.mp4', '_detected.mp4')
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)})

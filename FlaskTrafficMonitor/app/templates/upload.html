@@ -275,7 +275,7 @@ document.getElementById('upload-btn').addEventListener('click', () => {
 
 // 处理视频按钮
 document.getElementById('process-btn').addEventListener('click', () => {
-    const filename = selectedFile?.name || document.querySelector('.play-video')?.dataset.video;
+    var filename = (selectedFile && selectedFile.name) || (document.querySelector('.play-video') && document.querySelector('.play-video').dataset.video);
     if (!filename) return;
     
     document.getElementById('process-btn').disabled = true;

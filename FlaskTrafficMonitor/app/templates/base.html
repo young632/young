@@ -307,7 +307,8 @@
                 minute: '2-digit',
                 second: '2-digit'
             });
-            document.querySelector('.status-badge + span')?.textContent = timeStr;
+            var timeEl = document.querySelector('.status-badge + span');
+            if (timeEl) timeEl.textContent = timeStr;
         }
         updateTime();
         setInterval(updateTime, 1000);
